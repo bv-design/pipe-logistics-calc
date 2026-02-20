@@ -64,19 +64,63 @@ const calcWpm = (D,t,rho) => Math.PI*t*(D-t)/1e6*rho;
 const calcW   = (D,t,L,n,rho) => calcWpm(D,t,rho)*(L/1000)*n;
 
 // ─── 2D Truck Simulator ───────────────────────────────────────────────────────
+// Укладка: гексагональная «в седло» (каждый чётный ряд смещён на D/2, высота яруса D*√3/2)
+// Для мелких труб (< 200мм) используем прямоугольную сетку — разница несущественна
+const SQRT3_2 = Math.sqrt(3) / 2; // ≈ 0.866
+
+function calcLayout(diameter, W, freeH) {
+  const hex = diameter >= 200;
+  const perRow0 = Math.floor(W / diameter);           // нечётный ряд
+  const perRow1 = Math.max(0, perRow0 - 1);           // чётный ряд (смещённый, -1 труба)
+  if (perRow0 < 1) return null;
+
+  const rowH = hex ? diameter * SQRT3_2 : diameter;   // высота одного яруса
+  const firstH = diameter;                             // первый ряд всегда = D (лежит на полу)
+
+  // сколько ярусов влезает: первый + остальные через rowH
+  let rows = 0, usedH = 0;
+  if (freeH < diameter) return null;                   // даже первый ряд не влезает
+  rows = 1; usedH = diameter;
+  while (usedH + rowH <= freeH) { usedH += rowH; rows++; }
+
+  // считаем трубы: нечётные ряды (1,3,5…) = perRow0, чётные (2,4,6…) = perRow1
+  let total = 0;
+  for (let r = 0; r < rows; r++) total += (r % 2 === 0 ? perRow0 : perRow1);
+
+  return { rows, perRow0, perRow1, rowH, usedH: diameter + (rows - 1) * rowH, total, hex };
+}
+
 class TruckSim {
   constructor(vKey){ const v=VEHICLES[vKey]; this.W=v.w; this.H=v.h; this.usedH=0; this.slots=[]; }
+
   calcFit(diameter, maxByWeight){
-    if(diameter>this.W||diameter>this.H-this.usedH) return 0;
-    const perRow=Math.floor(this.W/diameter);
-    const rowsFit=Math.floor((this.H-this.usedH)/diameter);
-    return Math.min(maxByWeight, perRow*rowsFit);
+    const layout = calcLayout(diameter, this.W, this.H - this.usedH);
+    if (!layout) return 0;
+    return Math.min(maxByWeight, layout.total);
   }
+
   commit(diameter, count){
-    const perRow=Math.floor(this.W/diameter);
-    const rows=Math.ceil(count/perRow);
-    this.usedH+=rows*diameter;
-    this.slots.push({diameter,count,perRow,rows,h:rows*diameter});
+    // Пересчитываем сколько рядов нужно под count труб
+    const layout = calcLayout(diameter, this.W, this.H - this.usedH);
+    if (!layout) return;
+    // урезаем ряды если count < layout.total
+    let rows = 0, total = 0;
+    for (let r = 0; r < layout.rows; r++) {
+      const inRow = r % 2 === 0 ? layout.perRow0 : layout.perRow1;
+      if (total + inRow > count) {
+        // последний неполный ряд
+        rows++; total += Math.min(inRow, count - total); break;
+      }
+      total += inRow; rows++;
+      if (total >= count) break;
+    }
+    const slotH = diameter + (rows - 1) * layout.rowH;
+    this.usedH += slotH;
+    this.slots.push({
+      diameter, count, rows,
+      perRow0: layout.perRow0, perRow1: layout.perRow1,
+      rowH: layout.rowH, slotH, hex: layout.hex
+    });
   }
 }
 
@@ -115,12 +159,25 @@ function VizFront({slots,vKey,colorMap}){
   const v=VEHICLES[vKey], sc=150/v.h, W=v.w*sc, H=v.h*sc, pad=28;
   const circles=[]; let yBase=H;
   for(const slot of slots){
-    for(let i=0;i<slot.count;i++){
-      const col=i%slot.perRow, row=Math.floor(i/slot.perRow);
-      circles.push({cx:col*slot.diameter*sc+slot.diameter*sc/2, cy:yBase-row*slot.diameter*sc-slot.diameter*sc/2,
-        r:slot.diameter*sc/2-0.5, color:colorMap[slot.diameter]||'#888', d:slot.diameter});
+    let placed=0;
+    for(let r=0;r<slot.rows;r++){
+      const isEven = r%2===1;
+      const perRow = isEven ? slot.perRow1 : slot.perRow0;
+      const offsetX = isEven && slot.hex ? slot.diameter*sc/2 : 0;
+      const rowY = yBase - slot.diameter*sc/2 - r*(slot.hex ? slot.rowH*sc : slot.diameter*sc);
+      for(let c=0;c<perRow;c++){
+        if(placed>=slot.count) break;
+        circles.push({
+          cx: offsetX + c*slot.diameter*sc + slot.diameter*sc/2,
+          cy: rowY,
+          r: slot.diameter*sc/2-0.5,
+          color: colorMap[slot.diameter]||'#888',
+          d: slot.diameter
+        });
+        placed++;
+      }
     }
-    yBase-=slot.rows*slot.diameter*sc;
+    yBase -= slot.slotH * sc;
   }
   return (
     <svg width={W+pad*2} height={H+pad*2} style={{display:'block'}}>
@@ -141,8 +198,8 @@ function VizSide({slots,vKey,colorMap}){
   const v=VEHICLES[vKey], scH=150/v.h, scL=Math.min(0.06,200/v.l), W=v.l*scL, H=v.h*scH, pad=28;
   const rects=[]; let yBase=H;
   for(const slot of slots){
-    const rh=slot.rows*slot.diameter*scH;
-    rects.push({y:yBase-rh,h:rh,color:colorMap[slot.diameter]||'#888',d:slot.diameter});
+    const rh=slot.slotH*scH;
+    rects.push({y:yBase-rh,h:rh,color:colorMap[slot.diameter]||'#888',d:slot.diameter,hex:slot.hex});
     yBase-=rh;
   }
   return (
@@ -365,7 +422,11 @@ function App(){
                               <td style={{color:'#888'}}>{p.name||`Труба ${p.diameter}×${p.thickness}`}</td>
                               <td><span style={{color:colorMap[p.diameter]||'#888',fontWeight:600}}>Ø{p.diameter}×{p.thickness}</span></td>
                               <td>{p.length/1000} м</td>
-                              <td style={{color:'#555',fontSize:11}}>{slot?`${slot.rows} × ${slot.perRow}`:'—'}</td>
+                              <td style={{color:'#555',fontSize:11}}>
+                                {slot ? (slot.hex
+                                  ? `🔺 ${slot.rows} яр · ${slot.perRow0}+${slot.perRow1}`
+                                  : `${slot.rows} × ${slot.perRow0}`) : '—'}
+                              </td>
                               <td style={{color:'#D97706',fontWeight:600}}>{p.loaded} шт</td>
                               <td>{(p.wPerPipe*p.loaded/1000).toFixed(3)} т</td>
                             </tr>
