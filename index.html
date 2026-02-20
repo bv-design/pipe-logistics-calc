@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Калькулятор логистики труб</title>
+<meta name="description" content="Расчёт загрузки стальных труб в фуру или полувагон">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0F0F0F;color:#E5E5E5;font-family:'JetBrains Mono',monospace;font-size:13px}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:#1a1a1a}::-webkit-scrollbar-thumb{background:#D97706;border-radius:3px}
+.app{max-width:1400px;margin:0 auto;padding:16px}
+h1{color:#D97706;font-size:20px;font-weight:700;margin-bottom:4px}
+.subtitle{color:#666;font-size:11px;margin-bottom:20px}
+.card{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:16px;margin-bottom:16px}
+.card-title{color:#D97706;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
+.vtabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.tab{padding:8px 20px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#111;color:#888;font-family:inherit;font-size:12px;transition:all .2s}
+.tab.active{background:#D97706;color:#000;border-color:#D97706;font-weight:600}
+table{width:100%;border-collapse:collapse}
+th{color:#888;font-size:11px;font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid #2a2a2a;white-space:nowrap}
+td{padding:4px;border-bottom:1px solid #1f1f1f;vertical-align:middle}
+input[type=number],input[type=text],select{background:#111;border:1px solid #2a2a2a;color:#E5E5E5;padding:5px 8px;border-radius:4px;font-family:inherit;font-size:12px;width:100%;outline:none}
+input:focus,select:focus{border-color:#D97706}
+select option{background:#1a1a1a}
+.btn{padding:7px 16px;border-radius:5px;border:none;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;transition:all .2s}
+.btn-primary{background:#D97706;color:#000}.btn-primary:hover{background:#f59e0b}
+.btn-secondary{background:#2a2a2a;color:#E5E5E5;border:1px solid #333}.btn-secondary:hover{background:#333}
+.btn-danger{background:transparent;color:#ef4444;border:1px solid #ef444455;padding:4px 10px;font-size:11px}.btn-danger:hover{background:#ef444422}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}
+.stat{background:#111;border:1px solid #2a2a2a;border-radius:6px;padding:12px}
+.stat-val{font-size:24px;font-weight:700;color:#D97706}
+.stat-label{color:#666;font-size:10px;margin-top:2px}
+.nbadge{display:inline-block;background:#1f2d1a;color:#4ade80;border:1px solid #4ade8033;padding:2px 8px;border-radius:10px;font-size:10px}
+.err{background:#1a0a0a;border:1px solid #ef4444;border-radius:6px;padding:10px 14px;color:#ef4444;font-size:11px;margin-bottom:12px}
+.pbar-wrap{height:6px;background:#1f1f1f;border-radius:3px;overflow:hidden;margin-bottom:12px}
+.pbar{height:100%;border-radius:3px;transition:width .5s}
+.info{background:#0a1020;border:1px solid #1e3a5f;border-radius:6px;padding:10px 14px;color:#60a5fa;font-size:11px;margin-bottom:12px;line-height:1.6}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef } = React;
+
+const VEHICLES = {
+  truck: { name:'Фура',      icon:'🚛', l:13600, w:2440, h:2580, maxW:22000 },
+  wagon: { name:'Полувагон', icon:'🚃', l:12680, w:2830, h:2170, maxW:63000 }
+};
+const MATERIALS = [
+  {id:'steel',rho:7850,name:'Сталь'},{id:'stainless',rho:7900,name:'Нержавейка'},
+  {id:'copper',rho:8900,name:'Медь'},{id:'aluminum',rho:2700,name:'Алюминий'},
+  {id:'brass',rho:8500,name:'Латунь'},{id:'titanium',rho:4500,name:'Титан'},
+  {id:'cast_iron',rho:7200,name:'Чугун'},{id:'nickel',rho:8900,name:'Никель'},
+  {id:'zinc',rho:7130,name:'Цинк'},{id:'lead',rho:11340,name:'Свинец'},
+];
+const COLORS=['#60a5fa','#fbbf24','#4ade80','#fb923c','#a78bfa','#34d399','#f472b6','#f87171','#38bdf8','#e879f9'];
+const getMat = id => MATERIALS.find(m=>m.id===id)||MATERIALS[0];
+const calcWpm = (D,t,rho) => Math.PI*t*(D-t)/1e6*rho;
+const calcW   = (D,t,L,n,rho) => calcWpm(D,t,rho)*(L/1000)*n;
+
+// ─── 2D Truck Simulator ───────────────────────────────────────────────────────
+class TruckSim {
+  constructor(vKey){ const v=VEHICLES[vKey]; this.W=v.w; this.H=v.h; this.usedH=0; this.slots=[]; }
+  calcFit(diameter, maxByWeight){
+    if(diameter>this.W||diameter>this.H-this.usedH) return 0;
+    const perRow=Math.floor(this.W/diameter);
+    const rowsFit=Math.floor((this.H-this.usedH)/diameter);
+    return Math.min(maxByWeight, perRow*rowsFit);
+  }
+  commit(diameter, count){
+    const perRow=Math.floor(this.W/diameter);
+    const rows=Math.ceil(count/perRow);
+    this.usedH+=rows*diameter;
+    this.slots.push({diameter,count,perRow,rows,h:rows*diameter});
+  }
+}
+
+function loadVehicle(positions, vKey){
+  const v=VEHICLES[vKey], sim=new TruckSim(vKey);
+  let totalWeight=0; const loaded=[];
+  const sorted=[...positions].sort((a,b)=>b.diameter-a.diameter);
+  for(const p of sorted){
+    const wPer=calcWpm(p.diameter,p.thickness,p.rho)*(p.length/1000);
+    const maxByW=wPer>0?Math.floor((v.maxW-totalWeight)/wPer):p.remaining;
+    const canTake=Math.min(p.remaining,maxByW);
+    if(canTake<1) continue;
+    const fit=sim.calcFit(p.diameter,canTake);
+    if(fit<1) continue;
+    sim.commit(p.diameter,fit);
+    totalWeight+=fit*wPer;
+    loaded.push({...p,loaded:fit,wPerPipe:wPer});
+  }
+  return {loaded,totalWeight,slots:sim.slots,usedH:sim.usedH};
+}
+
+function optimizeLoading(positions, vKey){
+  const vehicles=[]; let rem=positions.map(p=>({...p,remaining:p.count})); let g=0;
+  while(rem.some(p=>p.remaining>0)&&g++<500){
+    const active=rem.filter(p=>p.remaining>0);
+    const res=loadVehicle(active,vKey);
+    if(!res.loaded.length) break;
+    vehicles.push({...res,number:vehicles.length+1});
+    rem=rem.map(p=>{const l=res.loaded.find(x=>x.id===p.id);return l?{...p,remaining:p.remaining-l.loaded}:p;});
+  }
+  return vehicles;
+}
+
+// ─── Visualization ────────────────────────────────────────────────────────────
+function VizFront({slots,vKey,colorMap}){
+  const v=VEHICLES[vKey], sc=150/v.h, W=v.w*sc, H=v.h*sc, pad=28;
+  const circles=[]; let yBase=H;
+  for(const slot of slots){
+    for(let i=0;i<slot.count;i++){
+      const col=i%slot.perRow, row=Math.floor(i/slot.perRow);
+      circles.push({cx:col*slot.diameter*sc+slot.diameter*sc/2, cy:yBase-row*slot.diameter*sc-slot.diameter*sc/2,
+        r:slot.diameter*sc/2-0.5, color:colorMap[slot.diameter]||'#888', d:slot.diameter});
+    }
+    yBase-=slot.rows*slot.diameter*sc;
+  }
+  return (
+    <svg width={W+pad*2} height={H+pad*2} style={{display:'block'}}>
+      <rect x={pad} y={pad} width={W} height={H} fill="#0d0d0d" stroke="#444" strokeWidth={1}/>
+      {circles.map((c,i)=>(
+        <g key={i}>
+          <circle cx={pad+c.cx} cy={pad+c.cy} r={Math.max(c.r,0.5)} fill={c.color} fillOpacity={0.75} stroke={c.color} strokeWidth={0.5}/>
+          {c.r>10&&<text x={pad+c.cx} y={pad+c.cy+3} textAnchor="middle" fontSize={Math.min(c.r*.7,10)} fill="#000" fontWeight="700" fontFamily="monospace">{c.d}</text>}
+        </g>
+      ))}
+      <text x={pad+W/2} y={pad+H+17} textAnchor="middle" fontSize={9} fill="#555" fontFamily="monospace">{v.w} мм</text>
+      <text x={pad-16} y={pad+H/2} textAnchor="middle" fontSize={9} fill="#555" fontFamily="monospace" transform={`rotate(-90,${pad-16},${pad+H/2})`}>{v.h} мм</text>
+    </svg>
+  );
+}
+
+function VizSide({slots,vKey,colorMap}){
+  const v=VEHICLES[vKey], scH=150/v.h, scL=Math.min(0.06,200/v.l), W=v.l*scL, H=v.h*scH, pad=28;
+  const rects=[]; let yBase=H;
+  for(const slot of slots){
+    const rh=slot.rows*slot.diameter*scH;
+    rects.push({y:yBase-rh,h:rh,color:colorMap[slot.diameter]||'#888',d:slot.diameter});
+    yBase-=rh;
+  }
+  return (
+    <svg width={W+pad*2} height={H+pad*2} style={{display:'block'}}>
+      <rect x={pad} y={pad} width={W} height={H} fill="#0d0d0d" stroke="#444" strokeWidth={1}/>
+      {rects.map((r,i)=>(
+        <g key={i}>
+          <rect x={pad} y={pad+r.y} width={W} height={r.h} fill={r.color} fillOpacity={0.4} stroke={r.color} strokeWidth={0.5}/>
+          <text x={pad+6} y={pad+r.y+r.h/2+4} fontSize={9} fill={r.color} fontFamily="monospace">Ø{r.d}</text>
+        </g>
+      ))}
+      <text x={pad+W/2} y={pad+H+17} textAnchor="middle" fontSize={9} fill="#555" fontFamily="monospace">{v.l} мм</text>
+    </svg>
+  );
+}
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+let uid=1;
+const newRow=()=>({id:uid++,name:'',diameter:219,thickness:6,length:12000,count:1,material:'steel'});
+
+// Sample JSON for demo
+const SAMPLE_JSON = {
+  requestId:"ЗК-000001247", requestDate:"2026-02-18", client:"ООО ТрубоСтрой", material:"steel",
+  positions:[
+    {lineNumber:1,name:"Труба бесшовная 219х6 ГОСТ 8732-78",diameter:219,thickness:6,length:12000,count:10},
+    {lineNumber:2,name:"Труба бесшовная 159х6 ГОСТ 8732-78",diameter:159,thickness:6,length:12000,count:15},
+    {lineNumber:3,name:"Труба бесшовная 114х5 ГОСТ 8732-78",diameter:114,thickness:5,length:12000,count:20},
+  ]
+};
+
+function App(){
+  const [vKey,setVKey]=useState('truck');
+  const [rows,setRows]=useState([newRow()]);
+  const [res,setRes]=useState(null);
+  const [err,setErr]=useState('');
+  const [busy,setBusy]=useState(false);
+  const fileRef=useRef();
+
+  const diams=[...new Set(rows.map(r=>r.diameter))];
+  const colorMap=Object.fromEntries(diams.map((d,i)=>[d,COLORS[i%COLORS.length]]));
+  const upd=(id,f,v)=>setRows(r=>r.map(row=>row.id===id?{...row,[f]:v}:row));
+
+  const calculate=()=>{
+    setErr('');
+    const valid=rows.filter(r=>r.diameter>0&&r.thickness>0&&r.count>0&&r.length>0);
+    if(!valid.length){setErr('Нет корректных позиций');return;}
+    const v=VEHICLES[vKey];
+    const bad=valid.filter(p=>p.diameter>v.w);
+    if(bad.length){setErr(`Диаметр ${bad[0].diameter} мм превышает ширину ${v.name} (${v.w} мм)`);return;}
+    setBusy(true);
+    setTimeout(()=>{
+      try{
+        const positions=valid.map(r=>({...r,rho:getMat(r.material).rho,wpm:calcWpm(r.diameter,r.thickness,getMat(r.material).rho)}));
+        setRes({vehicles:optimizeLoading(positions,vKey),positions,vKey});
+      }catch(e){setErr(e.message);}
+      setBusy(false);
+    },30);
+  };
+
+  const loadFile=file=>{
+    if(!file)return;
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const data=JSON.parse(e.target.result);
+        if(!data.positions)throw new Error('Нет поля positions');
+        const nr=data.positions.map(p=>{
+          let d=p.diameter,t=p.thickness;
+          if(!d&&p.name){const m=p.name.match(/(\d+)[хx×](\d+)/i);if(m){d=+m[1];t=+m[2];}}
+          let len=p.length||12000,cnt=p.count||0;
+          if(!len&&p.totalMeters)len=p.totalMeters<6?p.totalMeters*1000:12000;
+          if(!cnt&&p.totalMeters&&len)cnt=Math.ceil(p.totalMeters/(len/1000));
+          return {id:uid++,name:p.name||'',diameter:d||0,thickness:t||0,length:len,count:cnt,material:'steel'};
+        }).filter(r=>r.diameter>0);
+        setRows(nr);setErr('');
+      }catch(ex){setErr('Ошибка загрузки: '+ex.message);}
+    };
+    reader.readAsText(file);
+  };
+
+  const loadDemo=()=>{
+    const nr=SAMPLE_JSON.positions.map(p=>({id:uid++,name:p.name,diameter:p.diameter,thickness:p.thickness,length:p.length,count:p.count,material:'steel'}));
+    setRows(nr);setRes(null);setErr('');
+  };
+
+  const totalW=rows.reduce((s,r)=>s+calcW(r.diameter,r.thickness,r.length,r.count,getMat(r.material).rho),0);
+  const v=VEHICLES[vKey];
+
+  return (
+    <div className="app">
+      <h1>🔩 Калькулятор логистики труб</h1>
+      <div className="subtitle">Расчёт загрузки стальных труб в транспорт • Нормы Уралтрубпром</div>
+
+      <div className="vtabs">
+        {Object.entries(VEHICLES).map(([k,vv])=>(
+          <button key={k} className={`tab${vKey===k?' active':''}`} onClick={()=>{setVKey(k);setRes(null);}}>
+            {vv.icon} {vv.name}
+            <span style={{opacity:.6,fontSize:10,marginLeft:6}}>{vv.w}×{vv.h} мм · {vv.maxW/1000} т</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="card">
+        <div className="card-title">📋 Позиции</div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
+          <button className="btn btn-primary" onClick={()=>setRows(r=>[...r,newRow()])}>+ Добавить строку</button>
+          <button className="btn btn-secondary" onClick={()=>fileRef.current.click()}>📁 Загрузить JSON из 1С</button>
+          <button className="btn btn-secondary" onClick={loadDemo}>🧪 Демо-данные</button>
+          <input ref={fileRef} type="file" accept=".json,.txt" style={{display:'none'}} onChange={e=>{loadFile(e.target.files[0]);e.target.value='';}}/>
+          {rows.length>1&&<button className="btn btn-secondary" style={{fontSize:11,padding:'4px 10px'}} onClick={()=>{setRows([newRow()]);setRes(null);}}>✕ Очистить</button>}
+        </div>
+        <div style={{overflowX:'auto'}}>
+          <table>
+            <thead>
+              <tr>
+                <th style={{width:24}}>#</th>
+                <th>Наименование</th>
+                <th style={{width:85}}>Ø, мм</th>
+                <th style={{width:80}}>Стенка, мм</th>
+                <th style={{width:105}}>Длина</th>
+                <th style={{width:75}}>Кол-во</th>
+                <th style={{width:115}}>Материал</th>
+                <th style={{width:75}}>кг/м</th>
+                <th style={{width:80}}>Вес, т</th>
+                <th style={{width:32}}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row,i)=>{
+                const m=getMat(row.material);
+                const wpm=calcWpm(row.diameter,row.thickness,m.rho);
+                const wt=calcW(row.diameter,row.thickness,row.length,row.count,m.rho)/1000;
+                const oversized=row.diameter>v.w;
+                return (
+                  <tr key={row.id} style={oversized?{background:'#1a0a0a'}:{}}>
+                    <td style={{color:'#555',textAlign:'center'}}>{i+1}</td>
+                    <td><input type="text" value={row.name} onChange={e=>upd(row.id,'name',e.target.value)} placeholder="Труба 219×6..."/></td>
+                    <td>
+                      <input type="number" value={row.diameter} min={10} onChange={e=>upd(row.id,'diameter',+e.target.value||0)} onFocus={e=>e.target.select()}
+                        style={oversized?{borderColor:'#ef4444',color:'#ef4444'}:{}}/>
+                      {oversized&&<div style={{color:'#ef4444',fontSize:9,marginTop:1}}>⚠ Ø &gt; {v.w} мм</div>}
+                    </td>
+                    <td><input type="number" value={row.thickness} min={1} step={0.5} onChange={e=>upd(row.id,'thickness',+e.target.value||0)} onFocus={e=>e.target.select()}/></td>
+                    <td>
+                      <select value={row.length} onChange={e=>upd(row.id,'length',+e.target.value)}>
+                        <option value={6000}>6 000 мм</option>
+                        <option value={12000}>12 000 мм</option>
+                      </select>
+                    </td>
+                    <td><input type="number" value={row.count} min={1} onChange={e=>upd(row.id,'count',Math.max(1,Math.ceil(+e.target.value||1)))} onFocus={e=>e.target.select()}/></td>
+                    <td>
+                      <select value={row.material} onChange={e=>upd(row.id,'material',e.target.value)}>
+                        {MATERIALS.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
+                    </td>
+                    <td style={{color:'#888',textAlign:'right'}}>{wpm.toFixed(2)}</td>
+                    <td style={{color:colorMap[row.diameter]||'#888',textAlign:'right',fontWeight:600}}>{wt.toFixed(3)}</td>
+                    <td><button className="btn btn-danger" onClick={()=>setRows(r=>r.filter(x=>x.id!==row.id))}>✕</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{marginTop:12,display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
+          <button className="btn btn-primary" onClick={calculate} disabled={busy} style={{minWidth:160}}>
+            {busy?'⏳ Расчёт...':'⚡ Рассчитать загрузку'}
+          </button>
+          <span style={{color:'#555',fontSize:11}}>
+            Итого: {rows.reduce((s,r)=>s+r.count,0)} шт · {(totalW/1000).toFixed(3)} т
+          </span>
+        </div>
+      </div>
+
+      {err&&<div className="err">⚠ {err}</div>}
+
+      {res&&(()=>{
+        const allLoaded=res.vehicles.reduce((s,vr)=>s+vr.loaded.reduce((ss,p)=>ss+p.loaded,0),0);
+        const allTotal=res.positions.reduce((s,p)=>s+p.count,0);
+        const leftover=allTotal-allLoaded;
+        return (
+          <div>
+            <div className="card">
+              <div className="card-title">📊 Итоги</div>
+              <div className="stat-grid">
+                <div className="stat"><div className="stat-val">{res.vehicles.length}</div><div className="stat-label">{VEHICLES[res.vKey].icon} {VEHICLES[res.vKey].name}</div></div>
+                <div className="stat"><div className="stat-val">{(res.vehicles.reduce((s,vr)=>s+vr.totalWeight,0)/1000).toFixed(2)}</div><div className="stat-label">Тонн загружено</div></div>
+                <div className="stat"><div className="stat-val">{allLoaded}</div><div className="stat-label">Труб загружено</div></div>
+                <div className="stat"><div className="stat-val">{res.positions.length}</div><div className="stat-label">Позиций</div></div>
+                {leftover>0&&<div className="stat" style={{borderColor:'#ef444488'}}>
+                  <div className="stat-val" style={{color:'#ef4444'}}>{leftover}</div>
+                  <div className="stat-label">Не помещается</div>
+                </div>}
+              </div>
+            </div>
+
+            {res.vehicles.map((vr,i)=>{
+              const pct=Math.min(100,vr.totalWeight/VEHICLES[res.vKey].maxW*100);
+              return (
+                <div key={i} className="card">
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,flexWrap:'wrap',gap:8}}>
+                    <span style={{color:'#D97706',fontWeight:700,fontSize:14}}>{VEHICLES[res.vKey].icon} {VEHICLES[res.vKey].name} №{vr.number}</span>
+                    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                      <span className="nbadge">⚖ {(vr.totalWeight/1000).toFixed(2)} т / {VEHICLES[res.vKey].maxW/1000} т</span>
+                      <span style={{color:'#555',fontSize:10}}>{pct.toFixed(0)}% по весу</span>
+                      <span style={{color:'#555',fontSize:10}}>↕ {vr.usedH} / {VEHICLES[res.vKey].h} мм</span>
+                    </div>
+                  </div>
+                  <div className="pbar-wrap">
+                    <div className="pbar" style={{width:pct+'%',background:pct>95?'#ef4444':'#D97706'}}/>
+                  </div>
+                  <div style={{overflowX:'auto',marginBottom:14}}>
+                    <table>
+                      <thead><tr><th>Позиция</th><th>Ø×стенка</th><th>Длина</th><th>Рядов × шт/ряд</th><th>Кол-во</th><th>Вес, т</th></tr></thead>
+                      <tbody>
+                        {vr.loaded.map((p,j)=>{
+                          const slot=vr.slots.find(s=>s.diameter===p.diameter);
+                          return (
+                            <tr key={j}>
+                              <td style={{color:'#888'}}>{p.name||`Труба ${p.diameter}×${p.thickness}`}</td>
+                              <td><span style={{color:colorMap[p.diameter]||'#888',fontWeight:600}}>Ø{p.diameter}×{p.thickness}</span></td>
+                              <td>{p.length/1000} м</td>
+                              <td style={{color:'#555',fontSize:11}}>{slot?`${slot.rows} × ${slot.perRow}`:'—'}</td>
+                              <td style={{color:'#D97706',fontWeight:600}}>{p.loaded} шт</td>
+                              <td>{(p.wPerPipe*p.loaded/1000).toFixed(3)} т</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{display:'flex',gap:20,flexWrap:'wrap'}}>
+                    <div>
+                      <div style={{color:'#555',fontSize:10,marginBottom:4}}>ВИД СПЕРЕДИ (сечение)</div>
+                      <VizFront slots={vr.slots} vKey={res.vKey} colorMap={colorMap}/>
+                    </div>
+                    <div>
+                      <div style={{color:'#555',fontSize:10,marginBottom:4}}>ВИД СБОКУ</div>
+                      <VizSide slots={vr.slots} vKey={res.vKey} colorMap={colorMap}/>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      <div style={{color:'#2a2a2a',fontSize:10,textAlign:'center',marginTop:16,paddingBottom:8}}>
+        Калькулятор логистики труб v2.0 • Нормы Уралтрубпром
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
