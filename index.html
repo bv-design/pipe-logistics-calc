@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Калькулятор логистики труб</title>
-<meta name="description" content="Расчёт загрузки стальных труб в фуру или полувагон">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -39,7 +38,6 @@ select option{background:#1a1a1a}
 .err{background:#1a0a0a;border:1px solid #ef4444;border-radius:6px;padding:10px 14px;color:#ef4444;font-size:11px;margin-bottom:12px}
 .pbar-wrap{height:6px;background:#1f1f1f;border-radius:3px;overflow:hidden;margin-bottom:12px}
 .pbar{height:100%;border-radius:3px;transition:width .5s}
-.info{background:#0a1020;border:1px solid #1e3a5f;border-radius:6px;padding:10px 14px;color:#60a5fa;font-size:11px;margin-bottom:12px;line-height:1.6}
 </style>
 </head>
 <body>
@@ -63,253 +61,299 @@ const getMat = id => MATERIALS.find(m=>m.id===id)||MATERIALS[0];
 const calcWpm = (D,t,rho) => Math.PI*t*(D-t)/1e6*rho;
 const calcW   = (D,t,L,n,rho) => calcWpm(D,t,rho)*(L/1000)*n;
 
-// ─── 2D Truck Simulator ───────────────────────────────────────────────────────
-// Укладка: гексагональная «в седло» (каждый чётный ряд смещён на D/2, высота яруса D*√3/2)
-// Для мелких труб (< 200мм) используем прямоугольную сетку — разница несущественна
-const SQRT3_2 = Math.sqrt(3) / 2; // ≈ 0.866
+// ─── Gravity Simulator ───────────────────────────────────────────────────────
+// Каждая труба: {cx, cy, r, diameter, posId}
+// cx,cy — координаты центра в мм; y=0 — пол, y растёт вверх
 
-function calcLayout(diameter, W, freeH) {
-  const hex = diameter >= 200;
-  const perRow0 = Math.floor(W / diameter);           // нечётный ряд
-  const perRow1 = Math.max(0, perRow0 - 1);           // чётный ряд (смещённый, -1 труба)
-  if (perRow0 < 1) return null;
+function gravSim(W, H, initPipes) {
+  var pipes = initPipes ? initPipes.map(function(p){ return {cx:p.cx,cy:p.cy,r:p.r,diameter:p.diameter,posId:p.posId}; }) : [];
 
-  const rowH = hex ? diameter * SQRT3_2 : diameter;   // высота одного яруса
-  const firstH = diameter;                             // первый ряд всегда = D (лежит на полу)
-
-  // сколько ярусов влезает: первый + остальные через rowH
-  let rows = 0, usedH = 0;
-  if (freeH < diameter) return null;                   // даже первый ряд не влезает
-  rows = 1; usedH = diameter;
-  while (usedH + rowH <= freeH) { usedH += rowH; rows++; }
-
-  // считаем трубы: нечётные ряды (1,3,5…) = perRow0, чётные (2,4,6…) = perRow1
-  let total = 0;
-  for (let r = 0; r < rows; r++) total += (r % 2 === 0 ? perRow0 : perRow1);
-
-  return { rows, perRow0, perRow1, rowH, usedH: diameter + (rows - 1) * rowH, total, hex };
-}
-
-class TruckSim {
-  constructor(vKey){ const v=VEHICLES[vKey]; this.W=v.w; this.H=v.h; this.usedH=0; this.slots=[]; }
-
-  calcFit(diameter, maxByWeight){
-    const layout = calcLayout(diameter, this.W, this.H - this.usedH);
-    if (!layout) return 0;
-    return Math.min(maxByWeight, layout.total);
-  }
-
-  commit(diameter, count){
-    // Пересчитываем сколько рядов нужно под count труб
-    const layout = calcLayout(diameter, this.W, this.H - this.usedH);
-    if (!layout) return;
-    // урезаем ряды если count < layout.total
-    let rows = 0, total = 0;
-    for (let r = 0; r < layout.rows; r++) {
-      const inRow = r % 2 === 0 ? layout.perRow0 : layout.perRow1;
-      if (total + inRow > count) {
-        // последний неполный ряд
-        rows++; total += Math.min(inRow, count - total); break;
+  function findY(cx, r) {
+    var best = r;
+    for (var i = 0; i < pipes.length; i++) {
+      var p = pipes[i];
+      var dx = Math.abs(cx - p.cx);
+      var md = r + p.r;
+      if (dx < md) {
+        var candidate = p.cy + Math.sqrt(md*md - dx*dx);
+        if (candidate > best) best = candidate;
       }
-      total += inRow; rows++;
-      if (total >= count) break;
     }
-    const slotH = diameter + (rows - 1) * layout.rowH;
-    this.usedH += slotH;
-    this.slots.push({
-      diameter, count, rows,
-      perRow0: layout.perRow0, perRow1: layout.perRow1,
-      rowH: layout.rowH, slotH, hex: layout.hex
-    });
+    return best;
   }
+
+  function bestPos(r) {
+    // кандидаты по X: стены + вплотную к каждой трубе + «седло» между парами
+    var cands = [r, W - r];
+    for (var i = 0; i < pipes.length; i++) {
+      var p = pipes[i];
+      cands.push(p.cx - p.r - r);
+      cands.push(p.cx + p.r + r);
+      for (var j = i+1; j < pipes.length; j++) {
+        var q = pipes[j];
+        var a = p.r + r, b = q.r + r;
+        var D = Math.abs(p.cx - q.cx);
+        if (D < a+b && D > Math.abs(a-b)) {
+          var cx = p.cx + (D*D + a*a - b*b)/(2*D) * (q.cx > p.cx ? 1 : -1);
+          cands.push(cx);
+        }
+      }
+    }
+    var best = null;
+    for (var k = 0; k < cands.length; k++) {
+      var cx = cands[k];
+      if (cx - r < -0.1 || cx + r > W + 0.1) continue;
+      var cy = findY(cx, r);
+      if (cy + r > H + 0.1) continue;
+      // проверка пересечений
+      var ok = true;
+      for (var m = 0; m < pipes.length; m++) {
+        var pp = pipes[m];
+        var ddx = cx - pp.cx, ddy = cy - pp.cy;
+        if (Math.sqrt(ddx*ddx + ddy*ddy) < r + pp.r - 0.5) { ok = false; break; }
+      }
+      if (!ok) continue;
+      if (!best || cy < best.cy || (Math.abs(cy - best.cy) < 0.5 && cx < best.cx)) best = {cx:cx, cy:cy};
+    }
+    return best;
+  }
+
+  return {
+    getPipes: function() { return pipes; },
+    calcFit: function(diameter, maxCount) {
+      // пробный прогон на копии
+      var clone = gravSim(W, H, pipes);
+      var r = diameter / 2, count = 0;
+      while (count < maxCount) {
+        var pos = clone.tryPlace(r);
+        if (!pos) break;
+        clone.getPipes().push({cx:pos.cx, cy:pos.cy, r:r, diameter:diameter});
+        count++;
+      }
+      return count;
+    },
+    tryPlace: function(r) { return bestPos(r); },
+    commit: function(posId, diameter, maxCount) {
+      var r = diameter / 2, placed = 0;
+      while (placed < maxCount) {
+        var pos = bestPos(r);
+        if (!pos) break;
+        pipes.push({cx:pos.cx, cy:pos.cy, r:r, diameter:diameter, posId:posId});
+        placed++;
+      }
+      return placed;
+    }
+  };
 }
 
-function loadVehicle(positions, vKey){
-  const v=VEHICLES[vKey], sim=new TruckSim(vKey);
-  let totalWeight=0; const loaded=[];
-  const sorted=[...positions].sort((a,b)=>b.diameter-a.diameter);
-  for(const p of sorted){
-    const wPer=calcWpm(p.diameter,p.thickness,p.rho)*(p.length/1000);
-    const maxByW=wPer>0?Math.floor((v.maxW-totalWeight)/wPer):p.remaining;
-    const canTake=Math.min(p.remaining,maxByW);
-    if(canTake<1) continue;
-    const fit=sim.calcFit(p.diameter,canTake);
-    if(fit<1) continue;
-    sim.commit(p.diameter,fit);
-    totalWeight+=fit*wPer;
-    loaded.push({...p,loaded:fit,wPerPipe:wPer});
+// ─── Load one vehicle ────────────────────────────────────────────────────────
+function loadVehicle(positions, vKey) {
+  var v = VEHICLES[vKey];
+  var sim = gravSim(v.w, v.h, []);
+  var totalWeight = 0;
+  var loaded = [];
+
+  // сортируем: крупные вниз
+  var sorted = positions.slice().sort(function(a,b){ return b.diameter - a.diameter; });
+  var remaining = sorted.map(function(p){ return {p:p, rem:p.count}; });
+
+  var guard = 0;
+  while (guard++ < 200) {
+    var anyPlaced = false;
+    var stillLeft = [];
+    for (var i = 0; i < remaining.length; i++) {
+      var item = remaining[i], p = item.p;
+      var wPer = calcWpm(p.diameter, p.thickness, p.rho) * (p.length/1000);
+      var maxByW = wPer > 0 ? Math.floor((v.maxW - totalWeight) / wPer) : item.rem;
+      var canTake = Math.min(item.rem, maxByW);
+      if (canTake < 1) { stillLeft.push(item); continue; }
+      var fit = sim.calcFit(p.diameter, canTake);
+      if (fit < 1) { stillLeft.push(item); continue; }
+      var actual = sim.commit(p.id, p.diameter, fit);
+      if (actual < 1) { stillLeft.push(item); continue; }
+      totalWeight += actual * wPer;
+      var ex = null;
+      for (var j=0; j<loaded.length; j++) { if(loaded[j].id===p.id){ex=loaded[j];break;} }
+      if (ex) ex.loaded += actual;
+      else loaded.push({id:p.id,name:p.name,diameter:p.diameter,thickness:p.thickness,
+        length:p.length,loaded:actual,wPerPipe:wPer,rho:p.rho});
+      if (actual < item.rem) stillLeft.push({p:p, rem:item.rem - actual});
+      anyPlaced = true;
+    }
+    remaining = stillLeft;
+    if (!anyPlaced || remaining.length === 0) break;
   }
-  return {loaded,totalWeight,slots:sim.slots,usedH:sim.usedH};
+
+  var pipes = sim.getPipes();
+  var usedH = pipes.length ? Math.max.apply(null, pipes.map(function(pp){return pp.cy+pp.r;})) : 0;
+  return {loaded:loaded, totalWeight:totalWeight, pipes:pipes, usedH:usedH};
 }
 
-function optimizeLoading(positions, vKey){
-  const vehicles=[]; let rem=positions.map(p=>({...p,remaining:p.count})); let g=0;
-  while(rem.some(p=>p.remaining>0)&&g++<500){
-    const active=rem.filter(p=>p.remaining>0);
-    const res=loadVehicle(active,vKey);
-    if(!res.loaded.length) break;
-    vehicles.push({...res,number:vehicles.length+1});
-    rem=rem.map(p=>{const l=res.loaded.find(x=>x.id===p.id);return l?{...p,remaining:p.remaining-l.loaded}:p;});
+// ─── Optimize: split into multiple vehicles ───────────────────────────────────
+function optimizeLoading(positions, vKey) {
+  var vehicles = [];
+  var rem = positions.map(function(p){ return {p:p, count:p.count}; });
+  var guard = 0;
+  while (guard++ < 500) {
+    var active = [];
+    for (var i=0; i<rem.length; i++) { if(rem[i].count>0) active.push({id:rem[i].p.id,name:rem[i].p.name,diameter:rem[i].p.diameter,thickness:rem[i].p.thickness,length:rem[i].p.length,rho:rem[i].p.rho,count:rem[i].count}); }
+    if (!active.length) break;
+    var res = loadVehicle(active, vKey);
+    if (!res.loaded.length) break;
+    vehicles.push({number:vehicles.length+1, loaded:res.loaded, totalWeight:res.totalWeight, pipes:res.pipes, usedH:res.usedH});
+    for (var j=0; j<rem.length; j++) {
+      for (var k=0; k<res.loaded.length; k++) {
+        if (res.loaded[k].id === rem[j].p.id) { rem[j].count -= res.loaded[k].loaded; break; }
+      }
+    }
   }
   return vehicles;
 }
 
-// ─── Visualization ────────────────────────────────────────────────────────────
-function VizFront({slots,vKey,colorMap}){
-  const v=VEHICLES[vKey], sc=150/v.h, W=v.w*sc, H=v.h*sc, pad=28;
-  const circles=[]; let yBase=H;
-  for(const slot of slots){
-    let placed=0;
-    for(let r=0;r<slot.rows;r++){
-      const isEven = r%2===1;
-      const perRow = isEven ? slot.perRow1 : slot.perRow0;
-      const offsetX = isEven && slot.hex ? slot.diameter*sc/2 : 0;
-      const rowY = yBase - slot.diameter*sc/2 - r*(slot.hex ? slot.rowH*sc : slot.diameter*sc);
-      for(let c=0;c<perRow;c++){
-        if(placed>=slot.count) break;
-        circles.push({
-          cx: offsetX + c*slot.diameter*sc + slot.diameter*sc/2,
-          cy: rowY,
-          r: slot.diameter*sc/2-0.5,
-          color: colorMap[slot.diameter]||'#888',
-          d: slot.diameter
-        });
-        placed++;
-      }
-    }
-    yBase -= slot.slotH * sc;
-  }
+// ─── Visualization: Front ────────────────────────────────────────────────────
+function VizFront(props) {
+  var pipes=props.pipes, vKey=props.vKey, colorMap=props.colorMap;
+  var v=VEHICLES[vKey], sc=150/v.h, W=v.w*sc, H=v.h*sc, pad=28;
   return (
     <svg width={W+pad*2} height={H+pad*2} style={{display:'block'}}>
       <rect x={pad} y={pad} width={W} height={H} fill="#0d0d0d" stroke="#444" strokeWidth={1}/>
-      {circles.map((c,i)=>(
-        <g key={i}>
-          <circle cx={pad+c.cx} cy={pad+c.cy} r={Math.max(c.r,0.5)} fill={c.color} fillOpacity={0.75} stroke={c.color} strokeWidth={0.5}/>
-          {c.r>10&&<text x={pad+c.cx} y={pad+c.cy+3} textAnchor="middle" fontSize={Math.min(c.r*.7,10)} fill="#000" fontWeight="700" fontFamily="monospace">{c.d}</text>}
-        </g>
-      ))}
+      {pipes.map(function(p,i){
+        var cx=pad+p.cx*sc, cy=pad+H-p.cy*sc, r=Math.max(p.r*sc-0.5,0.5);
+        var color=colorMap[p.diameter]||'#888';
+        return (
+          <g key={i}>
+            <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={0.75} stroke={color} strokeWidth={0.5}/>
+            {r>10 && <text x={cx} y={cy+3} textAnchor="middle" fontSize={Math.min(r*0.7,10)} fill="#000" fontWeight="700" fontFamily="monospace">{p.diameter}</text>}
+          </g>
+        );
+      })}
       <text x={pad+W/2} y={pad+H+17} textAnchor="middle" fontSize={9} fill="#555" fontFamily="monospace">{v.w} мм</text>
-      <text x={pad-16} y={pad+H/2} textAnchor="middle" fontSize={9} fill="#555" fontFamily="monospace" transform={`rotate(-90,${pad-16},${pad+H/2})`}>{v.h} мм</text>
+      <text x={pad-16} y={pad+H/2} textAnchor="middle" fontSize={9} fill="#555" fontFamily="monospace" transform={"rotate(-90,"+(pad-16)+","+(pad+H/2)+")"}>{v.h} мм</text>
     </svg>
   );
 }
 
-function VizSide({slots,vKey,colorMap}){
-  const v=VEHICLES[vKey], scH=150/v.h, scL=Math.min(0.06,200/v.l), W=v.l*scL, H=v.h*scH, pad=28;
-  const rects=[]; let yBase=H;
-  for(const slot of slots){
-    const rh=slot.slotH*scH;
-    rects.push({y:yBase-rh,h:rh,color:colorMap[slot.diameter]||'#888',d:slot.diameter,hex:slot.hex});
-    yBase-=rh;
+// ─── Visualization: Side ─────────────────────────────────────────────────────
+function VizSide(props) {
+  var pipes=props.pipes, vKey=props.vKey, colorMap=props.colorMap;
+  var v=VEHICLES[vKey], scH=150/v.h, scL=Math.min(0.06,200/v.l), W=v.l*scL, H=v.h*scH, pad=28;
+  // группируем по диаметру
+  var byD={};
+  for (var i=0; i<pipes.length; i++) {
+    var p=pipes[i];
+    if (!byD[p.diameter]) byD[p.diameter]={minY:Infinity,maxY:0,color:colorMap[p.diameter]||'#888'};
+    if (p.cy-p.r < byD[p.diameter].minY) byD[p.diameter].minY=p.cy-p.r;
+    if (p.cy+p.r > byD[p.diameter].maxY) byD[p.diameter].maxY=p.cy+p.r;
   }
+  var bands = Object.keys(byD).map(function(d){ return {d:d,info:byD[d]}; });
   return (
     <svg width={W+pad*2} height={H+pad*2} style={{display:'block'}}>
       <rect x={pad} y={pad} width={W} height={H} fill="#0d0d0d" stroke="#444" strokeWidth={1}/>
-      {rects.map((r,i)=>(
-        <g key={i}>
-          <rect x={pad} y={pad+r.y} width={W} height={r.h} fill={r.color} fillOpacity={0.4} stroke={r.color} strokeWidth={0.5}/>
-          <text x={pad+6} y={pad+r.y+r.h/2+4} fontSize={9} fill={r.color} fontFamily="monospace">Ø{r.d}</text>
-        </g>
-      ))}
+      {bands.map(function(b,i){
+        var y=pad+H-b.info.maxY*scH, h=(b.info.maxY-b.info.minY)*scH;
+        return (
+          <g key={i}>
+            <rect x={pad} y={y} width={W} height={Math.max(h,1)} fill={b.info.color} fillOpacity={0.4} stroke={b.info.color} strokeWidth={0.5}/>
+            <text x={pad+6} y={y+h/2+4} fontSize={9} fill={b.info.color} fontFamily="monospace">Ø{b.d}</text>
+          </g>
+        );
+      })}
       <text x={pad+W/2} y={pad+H+17} textAnchor="middle" fontSize={9} fill="#555" fontFamily="monospace">{v.l} мм</text>
     </svg>
   );
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
-let uid=1;
-const newRow=()=>({id:uid++,name:'',diameter:219,thickness:6,length:12000,count:1,material:'steel'});
+var uid = 1;
+function newRow(){ return {id:uid++,name:'',diameter:219,thickness:6,length:12000,count:1,material:'steel'}; }
 
-// Sample JSON for demo
-const SAMPLE_JSON = {
-  requestId:"ЗК-000001247", requestDate:"2026-02-18", client:"ООО ТрубоСтрой", material:"steel",
-  positions:[
-    {lineNumber:1,name:"Труба бесшовная 219х6 ГОСТ 8732-78",diameter:219,thickness:6,length:12000,count:10},
-    {lineNumber:2,name:"Труба бесшовная 159х6 ГОСТ 8732-78",diameter:159,thickness:6,length:12000,count:15},
-    {lineNumber:3,name:"Труба бесшовная 114х5 ГОСТ 8732-78",diameter:114,thickness:5,length:12000,count:20},
-  ]
-};
+function App() {
+  var state = useState('truck');
+  var vKey=state[0], setVKey=state[1];
+  var rstate = useState([newRow()]);
+  var rows=rstate[0], setRows=rstate[1];
+  var resstate = useState(null);
+  var res=resstate[0], setRes=resstate[1];
+  var errstate = useState('');
+  var err=errstate[0], setErr=errstate[1];
+  var busystate = useState(false);
+  var busy=busystate[0], setBusy=busystate[1];
+  var fileRef = useRef();
 
-function App(){
-  const [vKey,setVKey]=useState('truck');
-  const [rows,setRows]=useState([newRow()]);
-  const [res,setRes]=useState(null);
-  const [err,setErr]=useState('');
-  const [busy,setBusy]=useState(false);
-  const fileRef=useRef();
+  var diams = [];
+  rows.forEach(function(r){ if(diams.indexOf(r.diameter)<0) diams.push(r.diameter); });
+  var colorMap = {};
+  diams.forEach(function(d,i){ colorMap[d]=COLORS[i%COLORS.length]; });
 
-  const diams=[...new Set(rows.map(r=>r.diameter))];
-  const colorMap=Object.fromEntries(diams.map((d,i)=>[d,COLORS[i%COLORS.length]]));
-  const upd=(id,f,v)=>setRows(r=>r.map(row=>row.id===id?{...row,[f]:v}:row));
+  function upd(id,f,v){ setRows(function(rs){ return rs.map(function(row){ return row.id===id ? Object.assign({},row,{[f]:v}) : row; }); }); }
 
-  const calculate=()=>{
+  function calculate() {
     setErr('');
-    const valid=rows.filter(r=>r.diameter>0&&r.thickness>0&&r.count>0&&r.length>0);
-    if(!valid.length){setErr('Нет корректных позиций');return;}
-    const v=VEHICLES[vKey];
-    const bad=valid.filter(p=>p.diameter>v.w);
-    if(bad.length){setErr(`Диаметр ${bad[0].diameter} мм превышает ширину ${v.name} (${v.w} мм)`);return;}
+    var valid = rows.filter(function(r){ return r.diameter>0&&r.thickness>0&&r.count>0&&r.length>0; });
+    if (!valid.length) { setErr('Нет корректных позиций'); return; }
+    var v = VEHICLES[vKey];
+    var bad = valid.filter(function(r){ return r.diameter > v.w; });
+    if (bad.length) { setErr('Диаметр '+bad[0].diameter+' мм превышает ширину '+v.name+' ('+v.w+' мм)'); return; }
     setBusy(true);
-    setTimeout(()=>{
-      try{
-        const positions=valid.map(r=>({...r,rho:getMat(r.material).rho,wpm:calcWpm(r.diameter,r.thickness,getMat(r.material).rho)}));
-        setRes({vehicles:optimizeLoading(positions,vKey),positions,vKey});
-      }catch(e){setErr(e.message);}
+    setTimeout(function(){
+      try {
+        var positions = valid.map(function(r){
+          return {id:r.id,name:r.name,diameter:r.diameter,thickness:r.thickness,
+            length:r.length,count:r.count,rho:getMat(r.material).rho};
+        });
+        setRes({vehicles:optimizeLoading(positions,vKey), positions:positions, vKey:vKey});
+      } catch(e){ setErr('Ошибка: '+e.message); }
       setBusy(false);
-    },30);
-  };
+    }, 30);
+  }
 
-  const loadFile=file=>{
-    if(!file)return;
-    const reader=new FileReader();
-    reader.onload=e=>{
-      try{
-        const data=JSON.parse(e.target.result);
-        if(!data.positions)throw new Error('Нет поля positions');
-        const nr=data.positions.map(p=>{
-          let d=p.diameter,t=p.thickness;
-          if(!d&&p.name){const m=p.name.match(/(\d+)[хx×](\d+)/i);if(m){d=+m[1];t=+m[2];}}
-          let len=p.length||12000,cnt=p.count||0;
-          if(!len&&p.totalMeters)len=p.totalMeters<6?p.totalMeters*1000:12000;
-          if(!cnt&&p.totalMeters&&len)cnt=Math.ceil(p.totalMeters/(len/1000));
+  function loadFile(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(e){
+      try {
+        var data = JSON.parse(e.target.result);
+        if (!data.positions) throw new Error('Нет поля positions');
+        var nr = data.positions.map(function(p){
+          var d=p.diameter, t=p.thickness;
+          if (!d && p.name) { var m=p.name.match(/(\d+)[хx×](\d+)/i); if(m){d=+m[1];t=+m[2];} }
+          var len=p.length||12000, cnt=p.count||0;
+          if (!len&&p.totalMeters) len=p.totalMeters<6?p.totalMeters*1000:12000;
+          if (!cnt&&p.totalMeters&&len) cnt=Math.ceil(p.totalMeters/(len/1000));
           return {id:uid++,name:p.name||'',diameter:d||0,thickness:t||0,length:len,count:cnt,material:'steel'};
-        }).filter(r=>r.diameter>0);
-        setRows(nr);setErr('');
-      }catch(ex){setErr('Ошибка загрузки: '+ex.message);}
+        }).filter(function(r){ return r.diameter>0; });
+        setRows(nr); setErr('');
+      } catch(ex){ setErr('Ошибка загрузки: '+ex.message); }
     };
     reader.readAsText(file);
-  };
+  }
 
-  const loadDemo=()=>{
-    const nr=SAMPLE_JSON.positions.map(p=>({id:uid++,name:p.name,diameter:p.diameter,thickness:p.thickness,length:p.length,count:p.count,material:'steel'}));
-    setRows(nr);setRes(null);setErr('');
-  };
-
-  const totalW=rows.reduce((s,r)=>s+calcW(r.diameter,r.thickness,r.length,r.count,getMat(r.material).rho),0);
-  const v=VEHICLES[vKey];
+  var totalW = rows.reduce(function(s,r){ return s+calcW(r.diameter,r.thickness,r.length,r.count,getMat(r.material).rho); },0);
+  var v = VEHICLES[vKey];
 
   return (
     <div className="app">
       <h1>🔩 Калькулятор логистики труб</h1>
-      <div className="subtitle">Расчёт загрузки стальных труб в транспорт • Нормы Уралтрубпром</div>
+      <div className="subtitle">Расчёт загрузки стальных труб • гравитационная укладка «в седло»</div>
 
       <div className="vtabs">
-        {Object.entries(VEHICLES).map(([k,vv])=>(
-          <button key={k} className={`tab${vKey===k?' active':''}`} onClick={()=>{setVKey(k);setRes(null);}}>
-            {vv.icon} {vv.name}
-            <span style={{opacity:.6,fontSize:10,marginLeft:6}}>{vv.w}×{vv.h} мм · {vv.maxW/1000} т</span>
-          </button>
-        ))}
+        {Object.keys(VEHICLES).map(function(k){
+          var vv=VEHICLES[k];
+          return (
+            <button key={k} className={"tab"+(vKey===k?' active':'')} onClick={function(){ setVKey(k); setRes(null); }}>
+              {vv.icon} {vv.name} <span style={{opacity:.6,fontSize:10,marginLeft:6}}>{vv.w}×{vv.h} мм · {vv.maxW/1000} т</span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="card">
         <div className="card-title">📋 Позиции</div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
-          <button className="btn btn-primary" onClick={()=>setRows(r=>[...r,newRow()])}>+ Добавить строку</button>
-          <button className="btn btn-secondary" onClick={()=>fileRef.current.click()}>📁 Загрузить JSON из 1С</button>
-          <button className="btn btn-secondary" onClick={loadDemo}>🧪 Демо-данные</button>
-          <input ref={fileRef} type="file" accept=".json,.txt" style={{display:'none'}} onChange={e=>{loadFile(e.target.files[0]);e.target.value='';}}/>
-          {rows.length>1&&<button className="btn btn-secondary" style={{fontSize:11,padding:'4px 10px'}} onClick={()=>{setRows([newRow()]);setRes(null);}}>✕ Очистить</button>}
+          <button className="btn btn-primary" onClick={function(){ setRows(function(r){ return r.concat([newRow()]); }); }}>+ Добавить строку</button>
+          <button className="btn btn-secondary" onClick={function(){ fileRef.current.click(); }}>📁 Загрузить JSON</button>
+          <input ref={fileRef} type="file" accept=".json,.txt" style={{display:'none'}} onChange={function(e){ loadFile(e.target.files[0]); e.target.value=''; }}/>
+          {rows.length>1 && <button className="btn btn-secondary" style={{fontSize:11,padding:'4px 10px'}} onClick={function(){ setRows([newRow()]); setRes(null); }}>✕ Очистить</button>}
         </div>
         <div style={{overflowX:'auto'}}>
           <table>
@@ -328,36 +372,36 @@ function App(){
               </tr>
             </thead>
             <tbody>
-              {rows.map((row,i)=>{
-                const m=getMat(row.material);
-                const wpm=calcWpm(row.diameter,row.thickness,m.rho);
-                const wt=calcW(row.diameter,row.thickness,row.length,row.count,m.rho)/1000;
-                const oversized=row.diameter>v.w;
+              {rows.map(function(row,i){
+                var m=getMat(row.material);
+                var wpm=calcWpm(row.diameter,row.thickness,m.rho);
+                var wt=calcW(row.diameter,row.thickness,row.length,row.count,m.rho)/1000;
+                var oversized=row.diameter>v.w;
                 return (
                   <tr key={row.id} style={oversized?{background:'#1a0a0a'}:{}}>
                     <td style={{color:'#555',textAlign:'center'}}>{i+1}</td>
-                    <td><input type="text" value={row.name} onChange={e=>upd(row.id,'name',e.target.value)} placeholder="Труба 219×6..."/></td>
+                    <td><input type="text" value={row.name} onChange={function(e){ upd(row.id,'name',e.target.value); }} placeholder="Труба 219×6..."/></td>
                     <td>
-                      <input type="number" value={row.diameter} min={10} onChange={e=>upd(row.id,'diameter',+e.target.value||0)} onFocus={e=>e.target.select()}
+                      <input type="number" value={row.diameter} min={10} onChange={function(e){ upd(row.id,'diameter',+e.target.value||0); }} onFocus={function(e){ e.target.select(); }}
                         style={oversized?{borderColor:'#ef4444',color:'#ef4444'}:{}}/>
-                      {oversized&&<div style={{color:'#ef4444',fontSize:9,marginTop:1}}>⚠ Ø &gt; {v.w} мм</div>}
+                      {oversized && <div style={{color:'#ef4444',fontSize:9,marginTop:1}}>⚠ Ø &gt; {v.w} мм</div>}
                     </td>
-                    <td><input type="number" value={row.thickness} min={1} step={0.5} onChange={e=>upd(row.id,'thickness',+e.target.value||0)} onFocus={e=>e.target.select()}/></td>
+                    <td><input type="number" value={row.thickness} min={1} step={0.5} onChange={function(e){ upd(row.id,'thickness',+e.target.value||0); }} onFocus={function(e){ e.target.select(); }}/></td>
                     <td>
-                      <select value={row.length} onChange={e=>upd(row.id,'length',+e.target.value)}>
+                      <select value={row.length} onChange={function(e){ upd(row.id,'length',+e.target.value); }}>
                         <option value={6000}>6 000 мм</option>
                         <option value={12000}>12 000 мм</option>
                       </select>
                     </td>
-                    <td><input type="number" value={row.count} min={1} onChange={e=>upd(row.id,'count',Math.max(1,Math.ceil(+e.target.value||1)))} onFocus={e=>e.target.select()}/></td>
+                    <td><input type="number" value={row.count} min={1} onChange={function(e){ upd(row.id,'count',Math.max(1,Math.ceil(+e.target.value||1))); }} onFocus={function(e){ e.target.select(); }}/></td>
                     <td>
-                      <select value={row.material} onChange={e=>upd(row.id,'material',e.target.value)}>
-                        {MATERIALS.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                      <select value={row.material} onChange={function(e){ upd(row.id,'material',e.target.value); }}>
+                        {MATERIALS.map(function(m){ return <option key={m.id} value={m.id}>{m.name}</option>; })}
                       </select>
                     </td>
                     <td style={{color:'#888',textAlign:'right'}}>{wpm.toFixed(2)}</td>
                     <td style={{color:colorMap[row.diameter]||'#888',textAlign:'right',fontWeight:600}}>{wt.toFixed(3)}</td>
-                    <td><button className="btn btn-danger" onClick={()=>setRows(r=>r.filter(x=>x.id!==row.id))}>✕</button></td>
+                    <td><button className="btn btn-danger" onClick={function(){ setRows(function(rs){ return rs.filter(function(x){ return x.id!==row.id; }); }); }}>✕</button></td>
                   </tr>
                 );
               })}
@@ -369,35 +413,33 @@ function App(){
             {busy?'⏳ Расчёт...':'⚡ Рассчитать загрузку'}
           </button>
           <span style={{color:'#555',fontSize:11}}>
-            Итого: {rows.reduce((s,r)=>s+r.count,0)} шт · {(totalW/1000).toFixed(3)} т
+            Итого: {rows.reduce(function(s,r){ return s+r.count; },0)} шт · {(totalW/1000).toFixed(3)} т
           </span>
         </div>
       </div>
 
-      {err&&<div className="err">⚠ {err}</div>}
+      {err && <div className="err">⚠ {err}</div>}
 
-      {res&&(()=>{
-        const allLoaded=res.vehicles.reduce((s,vr)=>s+vr.loaded.reduce((ss,p)=>ss+p.loaded,0),0);
-        const allTotal=res.positions.reduce((s,p)=>s+p.count,0);
-        const leftover=allTotal-allLoaded;
+      {res && (function(){
+        var allLoaded=res.vehicles.reduce(function(s,vr){ return s+vr.loaded.reduce(function(ss,p){ return ss+p.loaded; },0); },0);
+        var allTotal=res.positions.reduce(function(s,p){ return s+p.count; },0);
+        var leftover=allTotal-allLoaded;
+        var totalWLoaded=res.vehicles.reduce(function(s,vr){ return s+vr.totalWeight; },0);
         return (
           <div>
             <div className="card">
               <div className="card-title">📊 Итоги</div>
               <div className="stat-grid">
                 <div className="stat"><div className="stat-val">{res.vehicles.length}</div><div className="stat-label">{VEHICLES[res.vKey].icon} {VEHICLES[res.vKey].name}</div></div>
-                <div className="stat"><div className="stat-val">{(res.vehicles.reduce((s,vr)=>s+vr.totalWeight,0)/1000).toFixed(2)}</div><div className="stat-label">Тонн загружено</div></div>
+                <div className="stat"><div className="stat-val">{(totalWLoaded/1000).toFixed(2)}</div><div className="stat-label">Тонн загружено</div></div>
                 <div className="stat"><div className="stat-val">{allLoaded}</div><div className="stat-label">Труб загружено</div></div>
                 <div className="stat"><div className="stat-val">{res.positions.length}</div><div className="stat-label">Позиций</div></div>
-                {leftover>0&&<div className="stat" style={{borderColor:'#ef444488'}}>
-                  <div className="stat-val" style={{color:'#ef4444'}}>{leftover}</div>
-                  <div className="stat-label">Не помещается</div>
-                </div>}
+                {leftover>0 && <div className="stat" style={{borderColor:'#ef444488'}}><div className="stat-val" style={{color:'#ef4444'}}>{leftover}</div><div className="stat-label">Не помещается</div></div>}
               </div>
             </div>
 
-            {res.vehicles.map((vr,i)=>{
-              const pct=Math.min(100,vr.totalWeight/VEHICLES[res.vKey].maxW*100);
+            {res.vehicles.map(function(vr,i){
+              var pct=Math.min(100,vr.totalWeight/VEHICLES[res.vKey].maxW*100);
               return (
                 <div key={i} className="card">
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,flexWrap:'wrap',gap:8}}>
@@ -405,7 +447,7 @@ function App(){
                     <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
                       <span className="nbadge">⚖ {(vr.totalWeight/1000).toFixed(2)} т / {VEHICLES[res.vKey].maxW/1000} т</span>
                       <span style={{color:'#555',fontSize:10}}>{pct.toFixed(0)}% по весу</span>
-                      <span style={{color:'#555',fontSize:10}}>↕ {vr.usedH} / {VEHICLES[res.vKey].h} мм</span>
+                      <span style={{color:'#555',fontSize:10}}>↕ {Math.round(vr.usedH)} / {VEHICLES[res.vKey].h} мм</span>
                     </div>
                   </div>
                   <div className="pbar-wrap">
@@ -413,20 +455,14 @@ function App(){
                   </div>
                   <div style={{overflowX:'auto',marginBottom:14}}>
                     <table>
-                      <thead><tr><th>Позиция</th><th>Ø×стенка</th><th>Длина</th><th>Рядов × шт/ряд</th><th>Кол-во</th><th>Вес, т</th></tr></thead>
+                      <thead><tr><th>Позиция</th><th>Ø×стенка</th><th>Длина</th><th>Кол-во</th><th>Вес, т</th></tr></thead>
                       <tbody>
-                        {vr.loaded.map((p,j)=>{
-                          const slot=vr.slots.find(s=>s.diameter===p.diameter);
+                        {vr.loaded.map(function(p,j){
                           return (
                             <tr key={j}>
-                              <td style={{color:'#888'}}>{p.name||`Труба ${p.diameter}×${p.thickness}`}</td>
+                              <td style={{color:'#888'}}>{p.name||('Труба '+p.diameter+'×'+p.thickness)}</td>
                               <td><span style={{color:colorMap[p.diameter]||'#888',fontWeight:600}}>Ø{p.diameter}×{p.thickness}</span></td>
                               <td>{p.length/1000} м</td>
-                              <td style={{color:'#555',fontSize:11}}>
-                                {slot ? (slot.hex
-                                  ? `🔺 ${slot.rows} яр · ${slot.perRow0}+${slot.perRow1}`
-                                  : `${slot.rows} × ${slot.perRow0}`) : '—'}
-                              </td>
                               <td style={{color:'#D97706',fontWeight:600}}>{p.loaded} шт</td>
                               <td>{(p.wPerPipe*p.loaded/1000).toFixed(3)} т</td>
                             </tr>
@@ -438,11 +474,11 @@ function App(){
                   <div style={{display:'flex',gap:20,flexWrap:'wrap'}}>
                     <div>
                       <div style={{color:'#555',fontSize:10,marginBottom:4}}>ВИД СПЕРЕДИ (сечение)</div>
-                      <VizFront slots={vr.slots} vKey={res.vKey} colorMap={colorMap}/>
+                      <VizFront pipes={vr.pipes} vKey={res.vKey} colorMap={colorMap}/>
                     </div>
                     <div>
                       <div style={{color:'#555',fontSize:10,marginBottom:4}}>ВИД СБОКУ</div>
-                      <VizSide slots={vr.slots} vKey={res.vKey} colorMap={colorMap}/>
+                      <VizSide pipes={vr.pipes} vKey={res.vKey} colorMap={colorMap}/>
                     </div>
                   </div>
                 </div>
@@ -453,13 +489,13 @@ function App(){
       })()}
 
       <div style={{color:'#2a2a2a',fontSize:10,textAlign:'center',marginTop:16,paddingBottom:8}}>
-        Калькулятор логистики труб v2.0 • Нормы Уралтрубпром
+        Калькулятор логистики труб v3.0 • гравитационная укладка
       </div>
     </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App, null));
 </script>
 </body>
 </html>
