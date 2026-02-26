@@ -18,7 +18,7 @@ h1{color:#D97706;font-size:20px;font-weight:700;margin-bottom:4px}
 .card{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:16px;margin-bottom:16px}
 .card-title{color:#D97706;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
 .vtabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-.tab{padding:8px 20px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#111;color:#888;font-family:inherit;font-size:12px;transition:all .2s}
+.tab{padding:8px 16px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#111;color:#888;font-family:inherit;font-size:11px;transition:all .2s;white-space:nowrap}
 .tab.active{background:#D97706;color:#000;border-color:#D97706;font-weight:600}
 table{width:100%;border-collapse:collapse}
 th{color:#888;font-size:11px;font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid #2a2a2a;white-space:nowrap}
@@ -36,6 +36,7 @@ select option{background:#1a1a1a}
 .stat-label{color:#666;font-size:10px;margin-top:2px}
 .nbadge{display:inline-block;background:#1f2d1a;color:#4ade80;border:1px solid #4ade8033;padding:2px 8px;border-radius:10px;font-size:10px}
 .err{background:#1a0a0a;border:1px solid #ef4444;border-radius:6px;padding:10px 14px;color:#ef4444;font-size:11px;margin-bottom:12px}
+.warn{background:#1a1200;border:1px solid #f59e0b;border-radius:6px;padding:10px 14px;color:#f59e0b;font-size:11px;margin-bottom:8px}
 .pbar-wrap{height:6px;background:#1f1f1f;border-radius:3px;overflow:hidden;margin-bottom:12px}
 .pbar{height:100%;border-radius:3px;transition:width .5s}
 </style>
@@ -47,9 +48,13 @@ var useState = React.useState;
 var useRef = React.useRef;
 
 var VEHICLES = {
-  truck: { name:'Фура',      icon:'🚛', l:13600, w:2440, h:2580, maxW:22000 },
-  wagon: { name:'Полувагон', icon:'🚃', l:12680, w:2830, h:2170, maxW:63000 }
+  truck:  { name:'Фура',          icon:'🚛', l:13600, w:2440, h:2580, maxW:22000 },
+  wagon:  { name:'Полувагон',     icon:'🚃', l:12680, w:2830, h:2170, maxW:63000 },
+  c20:    { name:'20-фут. контейнер', icon:'📦', l:5867,  w:2352, h:2393, maxW:21700 },
+  c40:    { name:'40-фут. контейнер', icon:'📦', l:12032, w:2350, h:2390, maxW:26680 },
+  c45:    { name:'45-фут. контейнер', icon:'📦', l:13513, w:2444, h:2549, maxW:27600 }
 };
+
 var MATERIALS = [
   {id:'steel',rho:7850,name:'Сталь'},{id:'stainless',rho:7900,name:'Нержавейка'},
   {id:'copper',rho:8900,name:'Медь'},{id:'aluminum',rho:2700,name:'Алюминий'},
@@ -136,8 +141,7 @@ function gravSim(W, H, initPipes) {
 function loadVehicle(positions, vKey) {
   var v=VEHICLES[vKey];
   var sim=gravSim(v.w,v.h,[]);
-  var totalWeight=0;
-  var loaded=[];
+  var totalWeight=0, loaded=[];
 
   var sorted=positions.slice().sort(function(a,b){return b.diameter-a.diameter;});
   var remaining=sorted.map(function(p){
@@ -178,8 +182,7 @@ function loadVehicle(positions, vKey) {
 }
 
 function optimizeLoading(positions, vKey) {
-  var vehicles=[];
-  var rem=positions.map(function(p){return {p:p,count:p.count};});
+  var vehicles=[], rem=positions.map(function(p){return {p:p,count:p.count};});
   var guard=0;
   while(guard++<500) {
     var active=rem.filter(function(r){return r.count>0;}).map(function(r){
@@ -227,23 +230,22 @@ function VizSide(props) {
   var loaded=props.loaded, pipes=props.pipes;
   var v=VEHICLES[vKey], scH=150/v.h, H=v.h*scH, W=v.l*scH, pad=28;
 
-  // Для каждого диаметра находим реальный Y-диапазон из pipes
+  // Реальные Y-диапазоны из pipes
   var pipeRange={};
   for (var pi=0; pi<pipes.length; pi++) {
     var pp=pipes[pi], d=pp.diameter;
     if (!pipeRange[d]) pipeRange[d]={minY:Infinity,maxY:0};
-    if (pp.cy-pp.r < pipeRange[d].minY) pipeRange[d].minY=pp.cy-pp.r;
-    if (pp.cy+pp.r > pipeRange[d].maxY) pipeRange[d].maxY=pp.cy+pp.r;
+    if (pp.cy-pp.r<pipeRange[d].minY) pipeRange[d].minY=pp.cy-pp.r;
+    if (pp.cy+pp.r>pipeRange[d].maxY) pipeRange[d].maxY=pp.cy+pp.r;
   }
 
-  // Группируем loaded по слоям высоты — позиции с пересекающимися Y-диапазонами в одном слое
-  // Упрощённо: группируем по одинаковому maxY (трубы уложенные на одном уровне)
+  // Сортируем по minY (снизу вверх)
   var sortedL=loaded.slice().sort(function(a,b){
-    var ra=pipeRange[a.diameter], rb=pipeRange[b.diameter];
-    var ya=ra?ra.minY:0, yb=rb?rb.minY:0;
-    return ya-yb; // снизу вверх
+    var ra=pipeRange[a.diameter]||{minY:0}, rb=pipeRange[b.diameter]||{minY:0};
+    return ra.minY-rb.minY;
   });
 
+  // Для каждой позиции находим индекс среди позиций с пересекающимся Y-диапазоном (для смещения подписей)
   var strips=[];
   for (var i=0; i<sortedL.length; i++) {
     var lp=sortedL[i];
@@ -256,31 +258,25 @@ function VizSide(props) {
     var yTop=pad+H-range.maxY*scH;
     var h=Math.max((range.maxY-range.minY)*scH,2);
 
-    // считаем сколько позиций делят этот же вертикальный диапазон (overlap)
-    var layerMates=[];
-    for (var j=0; j<sortedL.length; j++) {
+    // считаем смещение подписи: сколько предыдущих позиций пересекают тот же Y-диапазон
+    var labelOffset=0;
+    for (var j=0; j<i; j++) {
       var other=sortedL[j], ro=pipeRange[other.diameter];
-      if (!ro) continue;
-      // пересечение диапазонов по Y
-      if (ro.minY < range.maxY && ro.maxY > range.minY) layerMates.push(j);
+      if (ro && ro.minY<range.maxY && ro.maxY>range.minY) labelOffset+=80;
     }
-    var myIndexInLayer=layerMates.indexOf(i);
 
     for (var ri=0; ri<rows; ri++) {
       strips.push({
-        x: pad+ri*bW,
-        y: yTop,
-        w: bW-1,
-        h: h,
+        x: pad+ri*bW, y: yTop, w: bW-1, h: h,
         color: color,
         opacity: ri%2===0?0.65:0.4,
         label: 'Ø'+d+' р.'+(ri+1)+' ('+tubeLen/1000+'м)',
-        labelOffset: myIndexInLayer*70 // смещение подписи по X для каждой позиции в слое
+        labelOffset: labelOffset
       });
     }
   }
 
-  // свободное пространство по длине: max занятая X - pad
+  // Свободное пространство: максимальная занятая X
   var maxUsedX=pad;
   for (var si=0; si<strips.length; si++) {
     var ex2=strips[si].x+strips[si].w;
@@ -299,7 +295,7 @@ function VizSide(props) {
           </g>
         );
       })}
-      {freeLen>50&&<text x={maxUsedX+6} y={pad+H/2+4} fontSize={9} fill="#555" fontFamily="monospace">{freeLen} мм своб.</text>}
+      {freeLen>50&&<text x={maxUsedX+8} y={pad+H/2+4} fontSize={9} fill="#666" fontFamily="monospace">{freeLen} мм своб.</text>}
       <text x={pad+W/2} y={pad+H+17} textAnchor="middle" fontSize={9} fill="#555" fontFamily="monospace">{v.l} мм</text>
     </svg>
   );
@@ -329,8 +325,18 @@ function App() {
     var valid=rows.filter(function(r){return r.diameter>0&&r.thickness>0&&r.count>0&&r.length>0;});
     if(!valid.length){setErr('Нет корректных позиций');return;}
     var v=VEHICLES[vKey];
-    var bad=valid.filter(function(r){return r.diameter>v.w;});
-    if(bad.length){setErr('Диаметр '+bad[0].diameter+' мм превышает ширину '+v.name+' ('+v.w+' мм)');return;}
+
+    // Проверка: длина трубы > длины грузового пространства
+    var tooLong=valid.filter(function(r){return r.length>v.l;});
+    if(tooLong.length){
+      setErr('⚠ Труба '+tooLong[0].name+' ('+tooLong[0].length+' мм) не влезает в грузовое пространство '+v.name+' ('+v.l+' мм по длине). Выберите другой транспорт или измените длину.');
+      return;
+    }
+
+    // Проверка: диаметр > ширины
+    var tooWide=valid.filter(function(r){return r.diameter>v.w;});
+    if(tooWide.length){setErr('Диаметр '+tooWide[0].diameter+' мм превышает ширину '+v.name+' ('+v.w+' мм)');return;}
+
     setBusy(true);
     setTimeout(function(){
       try {
@@ -368,6 +374,10 @@ function App() {
   var totalW=rows.reduce(function(s,r){return s+calcW(r.diameter,r.thickness,r.length,r.count,getMat(r.material).rho);},0);
   var v=VEHICLES[vKey];
 
+  // Предупреждения о несовместимости длин (показываем в таблице)
+  var lengthWarnings={};
+  rows.forEach(function(r){if(r.length>v.l) lengthWarnings[r.id]=true;});
+
   return (
     <div className="app">
       <h1>🔩 Калькулятор логистики труб</h1>
@@ -376,8 +386,9 @@ function App() {
       <div className="vtabs">
         {Object.keys(VEHICLES).map(function(k){
           var vv=VEHICLES[k];
-          return <button key={k} className={"tab"+(vKey===k?' active':'')} onClick={function(){setVKey(k);setRes(null);}}>
-            {vv.icon} {vv.name} <span style={{opacity:.6,fontSize:10,marginLeft:6}}>{vv.w}×{vv.h}мм · {vv.maxW/1000}т</span>
+          return <button key={k} className={"tab"+(vKey===k?' active':'')} onClick={function(){setVKey(k);setRes(null);setErr('');}}>
+            {vv.icon} {vv.name}<br/>
+            <span style={{opacity:.5,fontSize:9}}>{vv.w}×{vv.h}мм · {vv.maxW/1000}т</span>
           </button>;
         })}
       </div>
@@ -388,7 +399,7 @@ function App() {
           <button className="btn btn-primary" onClick={function(){setRows(function(r){return r.concat([newRow()]);});}}>+ Добавить строку</button>
           <button className="btn btn-secondary" onClick={function(){fileRef.current.click();}}>📁 Загрузить JSON</button>
           <input ref={fileRef} type="file" accept=".json,.txt" style={{display:'none'}} onChange={function(e){loadFile(e.target.files[0]);e.target.value='';}}/>
-          {rows.length>1&&<button className="btn btn-secondary" style={{fontSize:11,padding:'4px 10px'}} onClick={function(){setRows([newRow()]);setRes(null);}}>✕ Очистить</button>}
+          {rows.length>1&&<button className="btn btn-secondary" style={{fontSize:11,padding:'4px 10px'}} onClick={function(){setRows([newRow()]);setRes(null);setErr('');}}>✕ Очистить</button>}
         </div>
         <div style={{overflowX:'auto'}}>
           <table>
@@ -407,8 +418,10 @@ function App() {
                 var wpm=calcWpm(row.diameter,row.thickness,m.rho);
                 var wt=calcW(row.diameter,row.thickness,row.length,row.count,m.rho)/1000;
                 var oversized=row.diameter>v.w;
+                var tooLong=row.length>v.l;
+                var rowBg=tooLong?'#1a0a0a':oversized?'#1a0a0a':'';
                 return (
-                  <tr key={row.id} style={oversized?{background:'#1a0a0a'}:{}}>
+                  <tr key={row.id} style={rowBg?{background:rowBg}:{}}>
                     <td style={{color:'#555',textAlign:'center'}}>{i+1}</td>
                     <td><input type="text" value={row.name} onChange={function(e){upd(row.id,'name',e.target.value);}} placeholder="Труба 219×6..."/></td>
                     <td>
@@ -417,10 +430,11 @@ function App() {
                     </td>
                     <td><input type="number" value={row.thickness} min={1} step={0.5} onChange={function(e){upd(row.id,'thickness',+e.target.value||0);}} onFocus={function(e){e.target.select();}}/></td>
                     <td>
-                      <select value={row.length} onChange={function(e){upd(row.id,'length',+e.target.value);}}>
+                      <select value={row.length} onChange={function(e){upd(row.id,'length',+e.target.value);}} style={tooLong?{borderColor:'#ef4444',color:'#ef4444'}:{}}>
                         <option value={6000}>6 000 мм</option>
                         <option value={12000}>12 000 мм</option>
                       </select>
+                      {tooLong&&<div style={{color:'#ef4444',fontSize:9,marginTop:1}}>⚠ &gt; {v.l}мм</div>}
                     </td>
                     <td><input type="number" value={row.count} min={1} onChange={function(e){upd(row.id,'count',Math.max(1,Math.ceil(+e.target.value||1)));}} onFocus={function(e){e.target.select();}}/></td>
                     <td>
@@ -512,7 +526,7 @@ function App() {
           </div>
         );
       })()}
-      <div style={{color:'#2a2a2a',fontSize:10,textAlign:'center',marginTop:16,paddingBottom:8}}>Калькулятор логистики труб v19</div>
+      <div style={{color:'#2a2a2a',fontSize:10,textAlign:'center',marginTop:16,paddingBottom:8}}>Калькулятор логистики труб v20</div>
     </div>
   );
 }
