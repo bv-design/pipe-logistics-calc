@@ -359,7 +359,7 @@ function App() {
         if(!data.positions) throw new Error('Нет поля positions');
         var nr=data.positions.map(function(p){
           var d=p.diameter,t=p.thickness;
-          if(!d&&p.name){var m=p.name.match(/(\d+)[хx×](\d+)/i);if(m){d=+m[1];t=+m[2];}}
+          if(!d&&p.name){var m=p.name.match(/(\d+[,.]?\d*)[хx×](\d+[,.]?\d*)/i);if(m){d=parseFloat(m[1].replace(',','.'));t=parseFloat(m[2].replace(',','.'));}}
           var len=p.length||12000,cnt=p.count||0;
           if(!len&&p.totalMeters)len=p.totalMeters<6?p.totalMeters*1000:12000;
           if(!cnt&&p.totalMeters&&len)cnt=Math.ceil(p.totalMeters/(len/1000));
