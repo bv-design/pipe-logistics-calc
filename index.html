@@ -9,35 +9,34 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:#0F0F0F;color:#E5E5E5;font-family:'JetBrains Mono',monospace;font-size:13px}
-::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:#1a1a1a}::-webkit-scrollbar-thumb{background:#D97706;border-radius:3px}
+body{background:#ffffff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;font-size:13px}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:#f0f0f0}::-webkit-scrollbar-thumb{background:#D97706;border-radius:3px}
 .app{max-width:1400px;margin:0 auto;padding:16px}
-h1{color:#D97706;font-size:20px;font-weight:700;margin-bottom:4px}
-.subtitle{color:#666;font-size:11px;margin-bottom:20px}
-.card{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:16px;margin-bottom:16px}
-.card-title{color:#D97706;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
+h1{color:#cc2222;font-size:20px;font-weight:700;margin-bottom:4px}
+.subtitle{color:#888;font-size:11px;margin-bottom:20px}
+.card{background:#f7f7f7;border:1px solid #ddd;border-radius:8px;padding:16px;margin-bottom:16px}
+.card-title{color:#cc2222;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
 .vtabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-.tab{padding:8px 16px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#111;color:#888;font-family:inherit;font-size:11px;transition:all .2s;white-space:nowrap}
-.tab.active{background:#D97706;color:#000;border-color:#D97706;font-weight:600}
+.tab{padding:8px 16px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#fff;color:#555;font-family:inherit;font-size:11px;transition:all .2s;white-space:nowrap}
+.tab.active{background:#cc2222;color:#fff;border-color:#cc2222;font-weight:600}
 table{width:100%;border-collapse:collapse}
-th{color:#888;font-size:11px;font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid #2a2a2a;white-space:nowrap}
-td{padding:4px;border-bottom:1px solid #1f1f1f;vertical-align:middle}
-input[type=number],input[type=text],select{background:#111;border:1px solid #2a2a2a;color:#E5E5E5;padding:5px 8px;border-radius:4px;font-family:inherit;font-size:12px;width:100%;outline:none}
-input:focus,select:focus{border-color:#D97706}
-select option{background:#1a1a1a}
+th{color:#888;font-size:11px;font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid #ddd;white-space:nowrap}
+td{padding:4px;border-bottom:1px solid #eee;vertical-align:middle}
+input[type=number],input[type=text],select{background:#fff;border:1px solid #ccc;color:#1a1a1a;padding:5px 8px;border-radius:4px;font-family:inherit;font-size:12px;width:100%;outline:none}
+input:focus,select:focus{border-color:#cc2222}
+select option{background:#fff}
 .btn{padding:7px 16px;border-radius:5px;border:none;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;transition:all .2s}
-.btn-primary{background:#D97706;color:#000}.btn-primary:hover{background:#f59e0b}
-.btn-secondary{background:#2a2a2a;color:#E5E5E5;border:1px solid #333}.btn-secondary:hover{background:#333}
-.btn-danger{background:transparent;color:#ef4444;border:1px solid #ef444455;padding:4px 10px;font-size:11px}.btn-danger:hover{background:#ef444422}
+.btn-primary{background:#cc2222;color:#fff}.btn-primary:hover{background:#aa1111}
+.btn-secondary{background:#eee;color:#333;border:1px solid #ccc}.btn-secondary:hover{background:#ddd}
+.btn-danger{background:transparent;color:#ef4444;border:1px solid #ef444455;padding:4px 10px;font-size:11px}.btn-danger:hover{background:#ef444411}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}
-.stat{background:#111;border:1px solid #2a2a2a;border-radius:6px;padding:12px}
-.stat-val{font-size:24px;font-weight:700;color:#D97706}
-.stat-label{color:#666;font-size:10px;margin-top:2px}
-.nbadge{display:inline-block;background:#1f2d1a;color:#4ade80;border:1px solid #4ade8033;padding:2px 8px;border-radius:10px;font-size:10px}
-.err{background:#1a0a0a;border:1px solid #ef4444;border-radius:6px;padding:10px 14px;color:#ef4444;font-size:11px;margin-bottom:12px}
-.warn{background:#1a1200;border:1px solid #f59e0b;border-radius:6px;padding:10px 14px;color:#f59e0b;font-size:11px;margin-bottom:8px}
-.pbar-wrap{height:6px;background:#1f1f1f;border-radius:3px;overflow:hidden;margin-bottom:12px}
+.stat{background:#fff;border:1px solid #ddd;border-radius:6px;padding:12px}
+.stat-val{font-size:24px;font-weight:700;color:#cc2222}
+.stat-label{color:#888;font-size:10px;margin-top:2px}
+.nbadge{display:inline-block;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;padding:2px 8px;border-radius:10px;font-size:10px}
+.err{background:#fff0f0;border:1px solid #ef4444;border-radius:6px;padding:10px 14px;color:#cc2222;font-size:11px;margin-bottom:12px}
+.warn{background:#fff8e1;border:1px solid #f59e0b;border-radius:6px;padding:10px 14px;color:#b45309;font-size:11px;margin-bottom:8px}
+.pbar-wrap{height:6px;background:#eee;border-radius:3px;overflow:hidden;margin-bottom:12px}
 .pbar{height:100%;border-radius:3px;transition:width .5s}
 </style>
 </head>
@@ -380,8 +379,19 @@ function App() {
 
   return (
     <div className="app">
-      <h1>🔩 Калькулятор логистики труб</h1>
-      <div className="subtitle">Расчёт загрузки стальных труб • гравитационная укладка «в седло»</div>
+      <div style={{display:'flex',flexDirection:'column',alignItems:'center',marginBottom:20}}>
+        <svg width="400" height="72" viewBox="0 0 400 72" xmlns="http://www.w3.org/2000/svg">
+          {/* Три большие буквы */}
+          <text x="0"  y="62" fontFamily="Arial Narrow,Arial,sans-serif" fontSize="72" fontWeight="700" fill="#cc2222">Е</text>
+          <text x="46" y="62" fontFamily="Arial Narrow,Arial,sans-serif" fontSize="72" fontWeight="700" fill="#1a1a1a">М</text>
+          <text x="100" y="62" fontFamily="Arial Narrow,Arial,sans-serif" fontSize="72" fontWeight="700" fill="#cc2222">К</text>
+          {/* Текст справа */}
+          <text x="158" y="22" fontFamily="Arial,sans-serif" fontSize="16" fontWeight="700" fill="#1a1a1a" letterSpacing="1">ЕВРОПЕЙСКАЯ</text>
+          <text x="158" y="46" fontFamily="Arial,sans-serif" fontSize="16" fontWeight="700" fill="#1a1a1a" letterSpacing="1">МЕТАЛЛУРГИЧЕСКАЯ</text>
+          <text x="158" y="68" fontFamily="Arial,sans-serif" fontSize="16" fontWeight="700" fill="#1a1a1a" letterSpacing="1">КОМПАНИЯ</text>
+        </svg>
+        <h1>Калькулятор загрузки — ТРУБЫ</h1>
+      </div>
 
       <div className="vtabs">
         {Object.keys(VEHICLES).map(function(k){
@@ -526,7 +536,9 @@ function App() {
           </div>
         );
       })()}
-      <div style={{color:'#2a2a2a',fontSize:10,textAlign:'center',marginTop:16,paddingBottom:8}}>Калькулятор логистики труб v20</div>
+      <div style={{color:'#aaa',fontSize:11,textAlign:'center',marginTop:16,paddingBottom:12,borderTop:'1px solid #ddd',paddingTop:10,letterSpacing:1}}>
+        Developed and designed by EMC Logistics Department
+      </div>
     </div>
   );
 }
