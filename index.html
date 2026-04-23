@@ -463,7 +463,38 @@ function App(){
                 <div className="stat"><div className="stat-val">{(totalWL/1000).toFixed(2)}</div><div className="stat-label">Тонн загружено</div></div>
                 <div className="stat"><div className="stat-val">{allLoaded}</div><div className="stat-label">Труб загружено</div></div>
                 <div className="stat"><div className="stat-val">{res.positions.length}</div><div className="stat-label">Позиций</div></div>
-                {leftover>0&&<div className="stat" style={{borderColor:'#ef444488'}}><div className="stat-val" style={{color:'#ef4444'}}>{leftover}</div><div className="stat-label">Не помещается</div></div>}
+            {leftover>0&&(function(){
+              // Собираем не загруженные позиции
+              var notLoaded=res.positions.map(function(p){
+                var totalLoaded=res.vehicles.reduce(function(s,vr){
+                  var l=vr.loaded.find(function(x){return x.id===p.id;});
+                  return s+(l?l.loaded:0);
+                },0);
+                var left=p.count-totalLoaded;
+                if(left<=0) return null;
+                // определяем причину
+                var vv=VEHICLES[res.vKey];
+                var reason='';
+                if(p.diameter>vv.w) reason='диаметр '+p.diameter+' мм > ширины '+vv.w+' мм';
+                else if(p.length>vv.l) reason='длина '+p.length+' мм > длины кузова '+vv.l+' мм';
+                else reason='не хватило места или превышен вес';
+                return {p:p,left:left,reason:reason};
+              }).filter(function(x){return x!==null;});
+              return (
+                <div style={{background:'#fff0f0',border:'1px solid #ef4444',borderRadius:8,padding:14,marginBottom:16}}>
+                  <div style={{color:'#cc2222',fontWeight:700,fontSize:12,marginBottom:8}}>⚠ Не удалось загрузить: {leftover} шт</div>
+                  {notLoaded.map(function(item,i){
+                    return (
+                      <div key={i} style={{display:'flex',gap:12,alignItems:'baseline',padding:'4px 0',borderBottom:'1px solid #fdd',fontSize:12,flexWrap:'wrap'}}>
+                        <span style={{color:'#888',flex:'1 1 200px'}}>{item.p.name||('Труба '+item.p.diameter+'×'+item.p.thickness)}</span>
+                        <span style={{color:'#cc2222',fontWeight:600,whiteSpace:'nowrap'}}>Ø{item.p.diameter} · {item.left} шт</span>
+                        <span style={{color:'#aaa',fontSize:11,whiteSpace:'nowrap'}}>причина: {item.reason}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
               </div>
             </div>
             {res.vehicles.map(function(vr,vi){
