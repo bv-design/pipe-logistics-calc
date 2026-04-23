@@ -13,7 +13,7 @@
 
 ## 📊 Демо
 
-🔗 **[Открыть калькулятор](https://karpvch-cpu.github.io/pipe-logistics-calc/)**
+🔗 **[Открыть калькулятор](https://bv-design.github.io/pipe-logistics-calc/)**
 
 ## 🛠 Технологии
 
