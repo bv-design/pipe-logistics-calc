@@ -18,7 +18,7 @@ h1{color:#cc2222;font-size:20px;font-weight:700;margin-bottom:4px}
 .card{background:#f7f7f7;border:1px solid #ddd;border-radius:8px;padding:16px;margin-bottom:16px}
 .card-title{color:#cc2222;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
 .vtabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-.tab{padding:8px 16px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#fff;color:#555;font-family:inherit;font-size:11px;transition:all .2s;white-space:nowrap}
+.tab{padding:8px 16px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#fff;color:#555;font-family:inherit;font-size:11px;transition:all .2s;white-space:nowrap;text-align:center}
 .tab.active{background:#cc2222;color:#fff;border-color:#cc2222;font-weight:600}
 table{width:100%;border-collapse:collapse}
 th{color:#888;font-size:11px;font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid #ddd;white-space:nowrap}
@@ -46,7 +46,7 @@ select option{background:#fff}
 <script type="text/babel">
 var useState=React.useState, useRef=React.useRef;
 
-var VEHICLES={
+var PRESET_VEHICLES={
   truck:{name:'Фура',          icon:'🚛',l:13600,w:2440,h:2580,maxW:22000},
   wagon:{name:'Полувагон',     icon:'🚃',l:12680,w:2830,h:2170,maxW:63000},
   c20:  {name:'20-фут. контейнер',icon:'📦',l:5867, w:2352,h:2393,maxW:21700},
@@ -76,8 +76,7 @@ function gravSim(W,H,initPipes){
   function bestPos(r){
     var cands=[r,W-r];
     for(var i=0;i<pipes.length;i++){
-      var p=pipes[i];
-      cands.push(p.cx-p.r-r,p.cx+p.r+r);
+      var p=pipes[i];cands.push(p.cx-p.r-r,p.cx+p.r+r);
       for(var j=i+1;j<pipes.length;j++){
         var q=pipes[j],a=p.r+r,b=q.r+r,D=Math.abs(p.cx-q.cx);
         if(D<a+b&&D>Math.abs(a-b))cands.push(p.cx+(D*D+a*a-b*b)/(2*D)*(q.cx>p.cx?1:-1));
@@ -113,8 +112,8 @@ function gravSim(W,H,initPipes){
 }
 
 // ─── Load / Optimize ─────────────────────────────────────────────────────────
-function loadVehicle(positions,vKey){
-  var v=VEHICLES[vKey],sim=gravSim(v.w,v.h,[]),totalWeight=0,loaded=[];
+function loadVehicle(positions,v){
+  var sim=gravSim(v.w,v.h,[]),totalWeight=0,loaded=[];
   var sorted=positions.slice().sort(function(a,b){return b.diameter-a.diameter;});
   var remaining=sorted.map(function(p){return {p:p,rem:p.count,rowsAlong:Math.max(1,Math.floor(v.l/p.length))};});
   var guard=0;
@@ -148,7 +147,7 @@ function loadVehicle(positions,vKey){
   return {loaded:loaded,totalWeight:totalWeight,pipes:pipes,usedH:usedH};
 }
 
-function optimizeLoading(positions,vKey){
+function optimizeLoading(positions,v){
   var vehicles=[],rem=positions.map(function(p){return {p:p,count:p.count};});
   var guard=0;
   while(guard++<500){
@@ -156,7 +155,7 @@ function optimizeLoading(positions,vKey){
       return {id:r.p.id,name:r.p.name,diameter:r.p.diameter,thickness:r.p.thickness,length:r.p.length,rho:r.p.rho,count:r.count};
     });
     if(!active.length)break;
-    var res=loadVehicle(active,vKey);
+    var res=loadVehicle(active,v);
     if(!res.loaded.length)break;
     vehicles.push({number:vehicles.length+1,loaded:res.loaded,totalWeight:res.totalWeight,pipes:res.pipes,usedH:res.usedH});
     rem=rem.map(function(r){var l=res.loaded.find(function(x){return x.id===r.p.id;});return l?{p:r.p,count:r.count-l.loaded}:r;});
@@ -166,8 +165,8 @@ function optimizeLoading(positions,vKey){
 
 // ─── Визуализация ─────────────────────────────────────────────────────────────
 function VizFront(props){
-  var pipes=props.pipes,vKey=props.vKey,colorMap=props.colorMap;
-  var v=VEHICLES[vKey],sc=150/v.h,W=v.w*sc,H=v.h*sc,pad=28;
+  var pipes=props.pipes,colorMap=props.colorMap,v=props.v;
+  var sc=150/v.h,W=v.w*sc,H=v.h*sc,pad=28;
   return (
     <svg width={W+pad*2} height={H+pad*2} style={{display:'block'}}>
       <rect x={pad} y={pad} width={W} height={H} fill="#f0f0f0" stroke="#bbb" strokeWidth={1}/>
@@ -185,8 +184,8 @@ function VizFront(props){
 }
 
 function VizSide(props){
-  var vKey=props.vKey,colorMap=props.colorMap,loaded=props.loaded,pipes=props.pipes;
-  var v=VEHICLES[vKey],scH=150/v.h,H=v.h*scH,W=v.l*scH,pad=28;
+  var colorMap=props.colorMap,loaded=props.loaded,pipes=props.pipes,v=props.v;
+  var scH=150/v.h,H=v.h*scH,W=v.l*scH,pad=28;
   var pipeRange={};
   for(var pi=0;pi<pipes.length;pi++){
     var pp=pipes[pi],d=pp.diameter;
@@ -238,29 +237,37 @@ function App(){
   var s3=useState(null);var res=s3[0],setRes=s3[1];
   var s4=useState('');var err=s4[0],setErr=s4[1];
   var s5=useState(false);var busy=s5[0],setBusy=s5[1];
+  var s6=useState({name:'Свой транспорт',l:10000,w:2400,h:2400,maxW:20000});var custom=s6[0],setCustom=s6[1];
   var fileRef=useRef();
+
+  // Текущий транспорт
+  function getV(){
+    if(vKey==='custom') return Object.assign({icon:'🚚'},custom);
+    return PRESET_VEHICLES[vKey]||PRESET_VEHICLES['truck'];
+  }
+  var v=getV();
 
   var diams=[];
   rows.forEach(function(r){if(diams.indexOf(r.diameter)<0)diams.push(r.diameter);});
   var colorMap={};
   diams.forEach(function(d,i){colorMap[d]=COLORS[i%COLORS.length];});
 
-  function upd(id,f,v){setRows(function(rs){return rs.map(function(row){return row.id===id?Object.assign({},row,{[f]:v}):row;});});}
+  function upd(id,f,val){setRows(function(rs){return rs.map(function(row){return row.id===id?Object.assign({},row,{[f]:val}):row;});});}
 
   function calculate(){
     setErr('');
     var valid=rows.filter(function(r){return r.diameter>0&&r.thickness>0&&r.count>0&&r.length>0;});
     if(!valid.length){setErr('Нет корректных позиций');return;}
-    var v=VEHICLES[vKey];
-    var tooLong=valid.filter(function(r){return r.length>v.l;});
-    if(tooLong.length){setErr('Труба "'+tooLong[0].name+'" ('+tooLong[0].length+' мм) не влезает в грузовое пространство '+v.name+' ('+v.l+' мм). Выберите другой транспорт.');return;}
-    var tooWide=valid.filter(function(r){return r.diameter>v.w;});
-    if(tooWide.length){setErr('Диаметр '+tooWide[0].diameter+' мм превышает ширину '+v.name+' ('+v.w+' мм)');return;}
+    var cv=getV();
+    var tooLong=valid.filter(function(r){return r.length>cv.l;});
+    if(tooLong.length){setErr('Труба "'+(tooLong[0].name||'Ø'+tooLong[0].diameter)+'" ('+tooLong[0].length+' мм) не влезает в грузовое пространство '+cv.name+' ('+cv.l+' мм). Выберите другой транспорт.');return;}
+    var tooWide=valid.filter(function(r){return r.diameter>cv.w;});
+    if(tooWide.length){setErr('Диаметр '+tooWide[0].diameter+' мм превышает ширину '+cv.name+' ('+cv.w+' мм)');return;}
     setBusy(true);
     setTimeout(function(){
       try{
         var positions=valid.map(function(r){return {id:r.id,name:r.name,diameter:r.diameter,thickness:r.thickness,length:r.length,count:r.count,rho:getMat(r.material).rho};});
-        setRes({vehicles:optimizeLoading(positions,vKey),positions:positions,vKey:vKey});
+        setRes({vehicles:optimizeLoading(positions,cv),positions:positions,v:cv});
       }catch(e){setErr('Ошибка: '+e.message);}
       setBusy(false);
     },30);
@@ -287,36 +294,26 @@ function App(){
             function findKey(variants){
               for(var i=0;i<variants.length;i++)
                 for(var j=0;j<keys.length;j++)
-                  if(keys[j].toLowerCase().indexOf(variants[i])>=0) return keys[j];
+                  if(keys[j].toLowerCase().indexOf(variants[i])>=0)return keys[j];
               return null;
             }
-            function findVal(variants){
-              var k=findKey(variants);
-              return k ? String(row[k]).replace(',','.') : '';
-            }
+            function findVal(variants){var k=findKey(variants);return k?String(row[k]).replace(',','.'):'';}
             var nameVal=findVal(['наим','name','номенкл','описан']);
             var dVal=parseFloat(findVal(['диам','diameter','dn','∅'])||0);
             var tVal=parseFloat(findVal(['стенк','толщ','thickness','wall'])||0);
             var cVal=Math.ceil(parseFloat(findVal(['кол','qty','count','колич','шт'])||1));
-
-            // Длина: ищем ключ и определяем единицу из заголовка
             var lenKey=findKey(['длина одной','длин','length','len']);
             var lVal=0;
             if(lenKey){
               lVal=parseFloat(String(row[lenKey]).replace(',','.'))||0;
               var lkl=lenKey.toLowerCase();
-              if(lkl.indexOf('мм')>=0||lkl.indexOf('mm')>=0){
-                // уже в мм — не трогаем
-              } else if(lkl.indexOf('см')>=0||lkl.indexOf('cm')>=0){
-                lVal=lVal*10;
-              } else {
-                // по умолчанию считаем метры → мм
-                lVal=lVal*1000;
-              }
+              if(lkl.indexOf('мм')>=0||lkl.indexOf('mm')>=0){}
+              else if(lkl.indexOf('см')>=0||lkl.indexOf('cm')>=0){lVal=lVal*10;}
+              else{lVal=lVal*1000;}
             }
             if(!dVal&&nameVal){var dt=parseNameDT(nameVal);if(dt){dVal=dt.d;tVal=dt.t;}}
             if(!lVal)lVal=12000;
-            if(lVal>0&&lVal<100)lVal=lVal*1000; // страховка: если забыли единицу и значение совсем маленькое
+            if(lVal>0&&lVal<100)lVal=lVal*1000;
             return {id:uid++,name:nameVal,diameter:dVal,thickness:tVal,length:lVal,count:cVal||1,material:'steel'};
           }).filter(function(r){return r.diameter>0;});
           if(!nr.length)throw new Error('Строк с диаметром не найдено. Проверьте заголовки колонок.');
@@ -324,7 +321,7 @@ function App(){
         }catch(ex){setErr('Ошибка Excel: '+ex.message);}
       };
       reader.readAsBinaryString(file);
-    } else {
+    }else{
       var reader2=new FileReader();
       reader2.onload=function(e){
         try{
@@ -346,7 +343,6 @@ function App(){
   }
 
   var totalW=rows.reduce(function(s,r){return s+calcW(r.diameter,r.thickness,r.length,r.count,getMat(r.material).rho);},0);
-  var v=VEHICLES[vKey];
 
   return (
     <div className="app">
@@ -363,27 +359,55 @@ function App(){
         <h1>Калькулятор загрузки — ТРУБЫ</h1>
       </div>
 
-      {/* Транспорт */}
+      {/* Выбор транспорта */}
       <div className="vtabs">
-        {Object.keys(VEHICLES).map(function(k){
-          var vv=VEHICLES[k];
+        {Object.keys(PRESET_VEHICLES).map(function(k){
+          var vv=PRESET_VEHICLES[k];
           return <button key={k} className={"tab"+(vKey===k?' active':'')} onClick={function(){setVKey(k);setRes(null);setErr('');}}>
-            {vv.icon} {vv.name}<br/>
-            <span style={{opacity:.6,fontSize:9}}>{vv.w}×{vv.h}мм · {vv.maxW/1000}т</span>
+            {vv.icon} {vv.name}<br/><span style={{opacity:.6,fontSize:9}}>{vv.w}×{vv.h}мм · {vv.maxW/1000}т</span>
           </button>;
         })}
+        <button className={"tab"+(vKey==='custom'?' active':'')} onClick={function(){setVKey('custom');setRes(null);setErr('');}}>
+          🚚 Свой транспорт<br/><span style={{opacity:.6,fontSize:9}}>задать габариты</span>
+        </button>
       </div>
+
+      {/* Форма кастомного транспорта */}
+      {vKey==='custom'&&(
+        <div className="card" style={{borderColor:'#cc2222'}}>
+          <div className="card-title">🚚 Параметры транспорта</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10}}>
+            {[
+              {label:'Название',         field:'name', type:'text'},
+              {label:'Длина кузова, мм', field:'l',    type:'number'},
+              {label:'Ширина кузова, мм',field:'w',    type:'number'},
+              {label:'Высота кузова, мм',field:'h',    type:'number'},
+              {label:'Грузоподъёмность, кг',field:'maxW',type:'number'},
+            ].map(function(f){
+              return <div key={f.field}>
+                <div style={{fontSize:10,color:'#888',marginBottom:3}}>{f.label}</div>
+                <input type={f.type} value={custom[f.field]}
+                  onChange={function(e){
+                    var val=f.type==='number'?(+e.target.value||0):e.target.value;
+                    setCustom(function(c){return Object.assign({},c,{[f.field]:val});});
+                    setRes(null);
+                  }}
+                  onFocus={function(e){if(f.type==='number')e.target.select();}}/>
+              </div>;
+            })}
+          </div>
+          <div style={{marginTop:8,fontSize:10,color:'#aaa'}}>
+            Объём: {((custom.l/1000)*(custom.w/1000)*(custom.h/1000)).toFixed(2)} м³ · Грузоподъёмность: {(custom.maxW/1000).toFixed(1)} т
+          </div>
+        </div>
+      )}
 
       {/* Позиции */}
       <div className="card">
         <div className="card-title">📋 Позиции</div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
           <button className="btn btn-primary" onClick={function(){setRows(function(r){return r.concat([newRow()]);});}}>+ Добавить строку</button>
-          <button className="btn btn-secondary"
-            title="Поддерживаемые форматы: JSON (1С), Excel (.xlsx, .xls)"
-            onClick={function(){fileRef.current.click();}}>
-            📁 Добавить файл
-          </button>
+          <button className="btn btn-secondary" title="Поддерживаемые форматы: JSON (1С), Excel (.xlsx, .xls)" onClick={function(){fileRef.current.click();}}>📁 Добавить файл</button>
           <input ref={fileRef} type="file" accept=".json,.txt,.xlsx,.xls" style={{display:'none'}} onChange={function(e){loadFile(e.target.files[0]);e.target.value='';}}/>
           {rows.length>1&&<button className="btn btn-secondary" style={{fontSize:11,padding:'4px 10px'}} onClick={function(){setRows([newRow()]);setRes(null);setErr('');}}>✕ Очистить</button>}
         </div>
@@ -393,7 +417,7 @@ function App(){
               <tr>
                 <th style={{width:24}}>#</th><th>Наименование</th>
                 <th style={{width:85}}>Ø, мм</th><th style={{width:80}}>Стенка, мм</th>
-                <th style={{width:105}}>Длина</th><th style={{width:75}}>Кол-во</th>
+                <th style={{width:115}}>Длина</th><th style={{width:75}}>Кол-во</th>
                 <th style={{width:115}}>Материал</th><th style={{width:75}}>кг/м</th>
                 <th style={{width:80}}>Вес, т</th><th style={{width:32}}></th>
               </tr>
@@ -417,8 +441,8 @@ function App(){
                       <select value={row.length} onChange={function(e){upd(row.id,'length',+e.target.value);}} style={tooLong?{borderColor:'#ef4444',color:'#ef4444'}:{}}>
                         {(function(){
                           var opts=[6000,12000];
-                          if(opts.indexOf(row.length)<0) opts=[row.length].concat(opts).sort(function(a,b){return a-b;});
-                          return opts.map(function(o){return <option key={o} value={o}>{(o/1000).toLocaleString('ru')+' 000 мм'}</option>;});
+                          if(opts.indexOf(row.length)<0)opts=[row.length].concat(opts).sort(function(a,b){return a-b;});
+                          return opts.map(function(o){return <option key={o} value={o}>{o} мм</option>;});
                         })()}
                       </select>
                       {tooLong&&<div style={{color:'#ef4444',fontSize:9}}>⚠ &gt; {v.l}мм</div>}
@@ -450,6 +474,7 @@ function App(){
 
       {/* Результаты */}
       {res&&(function(){
+        var rv=res.v;
         var allLoaded=res.vehicles.reduce(function(s,vr){return s+vr.loaded.reduce(function(ss,p){return ss+p.loaded;},0);},0);
         var allTotal=res.positions.reduce(function(s,p){return s+p.count;},0);
         var leftover=allTotal-allLoaded;
@@ -459,54 +484,47 @@ function App(){
             <div className="card">
               <div className="card-title">📊 Итоги</div>
               <div className="stat-grid">
-                <div className="stat"><div className="stat-val">{res.vehicles.length}</div><div className="stat-label">{VEHICLES[res.vKey].icon} {VEHICLES[res.vKey].name}</div></div>
+                <div className="stat"><div className="stat-val">{res.vehicles.length}</div><div className="stat-label">{rv.icon||'🚚'} {rv.name}</div></div>
                 <div className="stat"><div className="stat-val">{(totalWL/1000).toFixed(2)}</div><div className="stat-label">Тонн загружено</div></div>
                 <div className="stat"><div className="stat-val">{allLoaded}</div><div className="stat-label">Труб загружено</div></div>
                 <div className="stat"><div className="stat-val">{res.positions.length}</div><div className="stat-label">Позиций</div></div>
-            {leftover>0&&(function(){
-              // Собираем не загруженные позиции
-              var notLoaded=res.positions.map(function(p){
-                var totalLoaded=res.vehicles.reduce(function(s,vr){
-                  var l=vr.loaded.find(function(x){return x.id===p.id;});
-                  return s+(l?l.loaded:0);
-                },0);
-                var left=p.count-totalLoaded;
-                if(left<=0) return null;
-                // определяем причину
-                var vv=VEHICLES[res.vKey];
-                var reason='';
-                if(p.diameter>vv.w) reason='диаметр '+p.diameter+' мм > ширины '+vv.w+' мм';
-                else if(p.length>vv.l) reason='длина '+p.length+' мм > длины кузова '+vv.l+' мм';
-                else reason='не хватило места или превышен вес';
-                return {p:p,left:left,reason:reason};
-              }).filter(function(x){return x!==null;});
-              return (
-                <div style={{background:'#fff0f0',border:'1px solid #ef4444',borderRadius:8,padding:14,marginBottom:16}}>
-                  <div style={{color:'#cc2222',fontWeight:700,fontSize:12,marginBottom:8}}>⚠ Не удалось загрузить: {leftover} шт</div>
-                  {notLoaded.map(function(item,i){
-                    return (
-                      <div key={i} style={{display:'flex',gap:12,alignItems:'baseline',padding:'4px 0',borderBottom:'1px solid #fdd',fontSize:12,flexWrap:'wrap'}}>
+              </div>
+              {leftover>0&&(function(){
+                var notLoaded=res.positions.map(function(p){
+                  var totalL=res.vehicles.reduce(function(s,vr){var l=vr.loaded.find(function(x){return x.id===p.id;});return s+(l?l.loaded:0);},0);
+                  var left=p.count-totalL;
+                  if(left<=0)return null;
+                  var reason='';
+                  if(p.diameter>rv.w)reason='диаметр '+p.diameter+' мм > ширины '+rv.w+' мм';
+                  else if(p.length>rv.l)reason='длина '+p.length+' мм > длины кузова '+rv.l+' мм';
+                  else reason='не хватило места или превышен вес';
+                  return {p:p,left:left,reason:reason};
+                }).filter(function(x){return x!==null;});
+                return (
+                  <div style={{background:'#fff0f0',border:'1px solid #ef4444',borderRadius:8,padding:14,marginTop:8}}>
+                    <div style={{color:'#cc2222',fontWeight:700,fontSize:12,marginBottom:8}}>⚠ Не удалось загрузить: {leftover} шт</div>
+                    {notLoaded.map(function(item,i){
+                      return <div key={i} style={{display:'flex',gap:12,alignItems:'baseline',padding:'4px 0',borderBottom:'1px solid #fdd',fontSize:12,flexWrap:'wrap'}}>
                         <span style={{color:'#888',flex:'1 1 200px'}}>{item.p.name||('Труба '+item.p.diameter+'×'+item.p.thickness)}</span>
                         <span style={{color:'#cc2222',fontWeight:600,whiteSpace:'nowrap'}}>Ø{item.p.diameter} · {item.left} шт</span>
                         <span style={{color:'#aaa',fontSize:11,whiteSpace:'nowrap'}}>причина: {item.reason}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-              </div>
+                      </div>;
+                    })}
+                  </div>
+                );
+              })()}
             </div>
+
             {res.vehicles.map(function(vr,vi){
-              var pct=Math.min(100,vr.totalWeight/VEHICLES[res.vKey].maxW*100);
+              var pct=Math.min(100,vr.totalWeight/rv.maxW*100);
               return (
                 <div key={vi} className="card">
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,flexWrap:'wrap',gap:8}}>
-                    <span style={{color:'#cc2222',fontWeight:700,fontSize:14}}>{VEHICLES[res.vKey].icon} {VEHICLES[res.vKey].name} №{vr.number}</span>
+                    <span style={{color:'#cc2222',fontWeight:700,fontSize:14}}>{rv.icon||'🚚'} {rv.name} №{vr.number}</span>
                     <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-                      <span className="nbadge">⚖ {(vr.totalWeight/1000).toFixed(2)} т / {VEHICLES[res.vKey].maxW/1000} т</span>
+                      <span className="nbadge">⚖ {(vr.totalWeight/1000).toFixed(2)} т / {rv.maxW/1000} т</span>
                       <span style={{color:'#aaa',fontSize:10}}>{pct.toFixed(0)}% по весу</span>
-                      <span style={{color:'#aaa',fontSize:10}}>↕ {Math.round(vr.usedH)} / {VEHICLES[res.vKey].h} мм</span>
+                      <span style={{color:'#aaa',fontSize:10}}>↕ {Math.round(vr.usedH)} / {rv.h} мм</span>
                     </div>
                   </div>
                   <div className="pbar-wrap"><div className="pbar" style={{width:pct+'%',background:pct>95?'#ef4444':'#cc2222'}}/></div>
@@ -530,11 +548,11 @@ function App(){
                   <div style={{display:'flex',gap:20,flexWrap:'wrap'}}>
                     <div>
                       <div style={{color:'#aaa',fontSize:10,marginBottom:4}}>ВИД СПЕРЕДИ (сечение)</div>
-                      <VizFront pipes={vr.pipes} vKey={res.vKey} colorMap={colorMap}/>
+                      <VizFront pipes={vr.pipes} v={rv} colorMap={colorMap}/>
                     </div>
                     <div style={{overflowX:'auto'}}>
                       <div style={{color:'#aaa',fontSize:10,marginBottom:4}}>ВИД СБОКУ</div>
-                      <VizSide loaded={vr.loaded} pipes={vr.pipes} vKey={res.vKey} colorMap={colorMap}/>
+                      <VizSide loaded={vr.loaded} pipes={vr.pipes} v={rv} colorMap={colorMap}/>
                     </div>
                   </div>
                 </div>
